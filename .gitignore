@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Virtual environment
+.venv/
+
+# SQLite database (rebuilt from data)
+data/listings.db
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Editor
+.vscode/

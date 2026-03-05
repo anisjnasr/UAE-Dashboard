@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UAE Real Estate Market Scanner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; }
+
+    :root {
+      --bg: #050505; --bg-card: #131313; --bg-row-even: #080808; --bg-row-odd: #0d0d0d;
+      --border: #1f1f1f; --border-active: #333;
+      --text: #d1d5db; --text-bright: #f3f4f6; --text-dim: #b4b4b4;
+      --text-muted: #a1a1aa; --text-faint: #52525b;
+      --accent-green: #34d399; --accent-blue: #60a5fa; --accent-red: #ef4444;
+      --link-border: #555; --area-link-border: #737373;
+      --info-border: #555; --info-hover-border: #999;
+      --popup-bg: #1a1a1a; --popup-border: #333;
+      --btn-active-bg: #1c1c1c; --hover-row: rgba(96,165,250,0.04);
+      --disabled: #3f3f46; --sep: #1f1f1f;
+      --tier-p: #34d399; --tier-p-bg: rgba(52,211,153,0.08); --tier-p-bdr: rgba(52,211,153,0.25);
+      --tier-e: #60a5fa; --tier-e-bg: rgba(96,165,250,0.08); --tier-e-bdr: rgba(96,165,250,0.25);
+      --tier-m: #c084fc; --tier-m-bg: rgba(192,132,252,0.08); --tier-m-bdr: rgba(192,132,252,0.25);
+      --tier-x: #fbbf24; --tier-x-bg: rgba(251,191,36,0.08); --tier-x-bdr: rgba(251,191,36,0.25);
+      --toggle-bg: #1c1c1c; --toggle-border: #333; --toggle-icon: #fbbf24;
+    }
+
+    body.light {
+      --bg: #f5f6f8; --bg-card: #ffffff; --bg-row-even: #ffffff; --bg-row-odd: #f8f9fb;
+      --border: #e0e3e8; --border-active: #a0a4ab;
+      --text: #111827; --text-bright: #030712; --text-dim: #1f2937;
+      --text-muted: #374151; --text-faint: #6b7280;
+      --accent-green: #047857; --accent-blue: #1d4ed8; --accent-red: #b91c1c;
+      --link-border: #6b7280; --area-link-border: #6b7280;
+      --info-border: #6b7280; --info-hover-border: #111827;
+      --popup-bg: #ffffff; --popup-border: #d1d5db;
+      --btn-active-bg: #e8eaed; --hover-row: rgba(37,99,235,0.05);
+      --disabled: #9ca3af; --sep: #d1d5db;
+      --tier-p: #047857; --tier-p-bg: rgba(4,120,87,0.12); --tier-p-bdr: rgba(4,120,87,0.35);
+      --tier-e: #1d4ed8; --tier-e-bg: rgba(29,78,216,0.10); --tier-e-bdr: rgba(29,78,216,0.30);
+      --tier-m: #7c3aed; --tier-m-bg: rgba(124,58,237,0.10); --tier-m-bdr: rgba(124,58,237,0.30);
+      --tier-x: #b45309; --tier-x-bg: rgba(180,83,9,0.12); --tier-x-bdr: rgba(180,83,9,0.35);
+      --toggle-bg: #ffffff; --toggle-border: #d1d5db; --toggle-icon: #374151;
+    }
+
+    body { margin: 0; padding: 24px; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; font-size: 15px; transition: background 0.25s, color 0.25s; }
+    h1 { font-size: 26px; font-weight: 700; color: var(--text-bright); margin: 0 0 4px 0; letter-spacing: -0.3px; text-align: center; }
+    .subtitle { color: var(--text-muted); font-size: 14px; margin-bottom: 18px; line-height: 1.5; text-align: center; }
+    .kpis { display: flex; gap: 14px; margin-bottom: 14px; justify-content: center; flex-wrap: wrap; }
+    .kpi { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; text-align: center; flex: 1; min-width: 150px; transition: background 0.25s, border-color 0.25s; }
+    .kpi .label { font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-muted); }
+    .kpi .value { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 22px; margin-top: 3px; color: var(--text-bright); }
+    .kpi .value .sub { color: var(--text-muted); font-size: 13px; font-weight: 400; }
+    .kpi.accent .value { color: var(--accent-green); }
+    .kpi.red .value { color: var(--accent-red); }
+    .filter-group { margin-bottom: 14px; text-align: center; }
+    .filter-label { font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 7px; }
+    .filter-row { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; justify-content: center; }
+    .kpi .value a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--link-border); }
+    .kpi .value a:hover { color: var(--accent-blue); border-color: var(--accent-blue); }
+    .fbtn { padding: 6px 16px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text-muted); white-space: nowrap; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+    .fbtn.active { color: var(--text-bright); background: var(--btn-active-bg); border-color: var(--border-active); }
+    .view-tabs { display: flex; gap: 2px; background: var(--bg-card); border-radius: 6px; padding: 3px; border: 1px solid var(--border); }
+    .view-tab { padding: 5px 14px; font-size: 13.5px; font-weight: 600; cursor: pointer; border: none; border-radius: 4px; background: transparent; color: var(--text-muted); transition: background 0.15s, color 0.15s; }
+    .view-tab.active { background: var(--btn-active-bg); color: var(--text-bright); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { padding: 8px 10px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border); text-align: right; cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.15s; }
+    th:hover { color: var(--text-bright); }
+    th .sort-arrow { font-size: 10px; margin-left: 3px; color: var(--accent-blue); }
+    th.left { text-align: left; }
+    td { padding: 8px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; text-align: right; color: var(--text); }
+    td.left { text-align: left; font-family: 'Inter', sans-serif; font-size: 14px; }
+    tr:hover { background: var(--hover-row) !important; }
+    .table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 12px; background: var(--bg-card); transition: background 0.25s, border-color 0.25s; }
+    .table-wrap.drops-table { border-color: rgba(239,68,68,0.25); }
+    .footer { margin-top: 18px; padding: 12px 14px; background: var(--bg-card); border-radius: 8px; border: 1px solid var(--border); font-size: 12.5px; color: var(--text-muted); line-height: 1.7; }
+    .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    select, input[type="number"] { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: var(--text-bright); padding: 5px 10px; font-size: 13px; font-family: 'Inter', sans-serif; }
+    .pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 13px; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; }
+    .conf-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 7px; flex-shrink: 0; }
+    .area-link { cursor: pointer; border-bottom: 1px dotted var(--area-link-border); }
+    .pg-btn { background: var(--bg-card); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 13px; font-family: 'Inter', sans-serif; }
+    .pg-btn:disabled { color: var(--disabled); cursor: default; }
+    .info-i { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--info-border); font-size: 10px; font-weight: 700; font-style: italic; color: var(--text-muted); cursor: help; vertical-align: middle; margin-left: 4px; }
+    .info-i:hover { color: var(--text-bright); border-color: var(--info-hover-border); }
+    .info-popup { position: fixed; background: var(--popup-bg); color: var(--text); border: 1px solid var(--popup-border); border-radius: 8px; padding: 12px 16px; font-size: 13px; font-style: normal; font-weight: 400; line-height: 1.6; max-width: 380px; z-index: 1000; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
+    .drop-val { color: var(--accent-red); font-weight: 600; }
+    .bld-link { color: var(--text-bright); text-decoration: none; border-bottom: 1px dotted var(--link-border); }
+    .bld-link:hover { color: var(--accent-blue); border-color: var(--accent-blue); }
+    .sep { width: 1px; height: 22px; background: var(--sep); margin: 0 6px; }
+
+    .theme-toggle { position: fixed; top: 18px; right: 24px; z-index: 999; width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--toggle-border); background: var(--toggle-bg); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.25s, border-color 0.25s; }
+    .theme-toggle:hover { border-color: var(--text-muted); }
+    .theme-toggle svg { width: 20px; height: 20px; fill: none; stroke: var(--toggle-icon); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: stroke 0.25s; }
+
+    .header-row { display: flex; justify-content: space-between; align-items: flex-start; }
+  </style>
+  <script>
+    (function(){var t=localStorage.getItem('theme');if(t==='light')document.documentElement.style.background='#f5f6f8';})();
+  </script>
+</head>
+<body>
+  <button class="theme-toggle" id="themeToggle" title="Toggle light/dark theme">
+    <svg id="themeIcon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+  </button>
+  <div id="root"><div style="margin-bottom:14px;color:var(--text-muted);font-size:14px">Loading data...</div></div>
+  <script>
+    (function() {
+      // --- Theme ---
+      const moonPath = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+      const sunPath = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+      function applyTheme(theme) {
+        document.body.classList.toggle('light', theme === 'light');
+        document.getElementById('themeIcon').innerHTML = theme === 'light' ? moonPath : sunPath;
+        localStorage.setItem('theme', theme);
+      }
+      const saved = localStorage.getItem('theme') || 'dark';
+      applyTheme(saved);
+      document.getElementById('themeToggle').onclick = function() {
+        const next = document.body.classList.contains('light') ? 'dark' : 'light';
+        applyTheme(next);
+        if (window.RAW) render();
+      };
+
+      function isLight() { return document.body.classList.contains('light'); }
+
+      const DATA_URL = 'data/dashboard_data.json?v=' + Date.now();
+
+      function tierColors() {
+        const s = getComputedStyle(document.documentElement);
+        const v = n => s.getPropertyValue(n).trim();
+        return {
+          P: { label: 'Prime', color: v('--tier-p'), bg: v('--tier-p-bg'), bdr: v('--tier-p-bdr') },
+          E: { label: 'Established', color: v('--tier-e'), bg: v('--tier-e-bg'), bdr: v('--tier-e-bdr') },
+          M: { label: 'Mid-Tier', color: v('--tier-m'), bg: v('--tier-m-bg'), bdr: v('--tier-m-bdr') },
+          X: { label: 'Peripheral', color: v('--tier-x'), bg: v('--tier-x-bg'), bdr: v('--tier-x-bdr') }
+        };
+      }
+
+      const DUBAI_AREAS = [
+        'Downtown Dubai','Business Bay','Dubai Marina','DIFC','Palm Jumeirah',
+        'Dubai Hills Estate','Dubai Creek Harbour','Jumeirah Lake Towers','Jumeirah Village Circle',
+        'Meydan','Dubai South','Arjan','DAMAC Hills','Dubai Silicon Oasis',
+        'Greens','Motor City','Town Square','Al Barsha','Bur Dubai',
+        'Dubai Sports City','International City'
+      ];
+      const AD_AREAS = [
+        'Al Reem Island','Yas Island','Saadiyat Island','Al Maryah Island',
+        'Al Raha Beach','Al Ghadeer','Al Reef','Masdar City','Khalifa City',
+        'Al Jubail Island','Al Khalidiya','Corniche Road','Al Bateen','Baniyas'
+      ];
+
+      function fmt(n) {
+        if (n == null || isNaN(n)) return '\u2014';
+        const x = Number(n);
+        if (x >= 1e6) return (x / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M';
+        if (x >= 1e3) return (x / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+        return Math.round(x).toLocaleString();
+      }
+      function pct(x) { return (x == null || isNaN(x)) ? '\u2014' : Number(x).toFixed(1) + '%'; }
+
+      function render() {
+        const RAW = window.RAW;
+        if (!RAW || !RAW.l) { document.getElementById('root').innerHTML = '<div style="color:var(--accent-red);font-size:15px">Failed to load data.</div>'; return; }
+        const T = tierColors();
+        const AREAS = RAW.a || [];
+        const LISTINGS = RAW.l.map(l => ({
+          building: l[0], area: AREAS[l[1]]||'', price: l[2], sqft: l[3],
+          furnished: l[4], grossYield: l[5], netYield: l[6], tier: l[7], conf: l[8],
+          scPsf: l[9]||12, city: l[10]||'Dubai', beds: l[11]||'1BR', url: l[12]||'',
+          psf: l[3] ? Math.round(l[2]/l[3]) : 0
+        }));
+        const SUMMARIES = (RAW.s||[]).map(s => ({
+          name: s[0], count: s[1], rentals: s[2], bldgMatch: s[3], areaMatch: s[4],
+          avgPrice: s[5], medPrice: s[6], minPrice: s[7], maxPrice: s[8], avgRent: s[9],
+          avgGY: s[10], avgNY: s[11], scPsf: s[12], tier: s[13], medRpsf: s[14],
+          city: s[15]||'Dubai', bldgPct: s[1] ? Math.round((s[3]/s[1])*100) : 0
+        }));
+        const DROPS = (RAW.d||[]).map(d => ({
+          building: d[0], area: AREAS[d[1]]||'', sqft: d[2], beds: d[3], furnished: d[4],
+          firstPrice: d[5], prevPrice: d[6], curPrice: d[7],
+          dropPrev: d[8], dropPctPrev: d[9], totalDrop: d[10], totalDropPct: d[11],
+          dropCount: d[12], oldGY: d[13], oldNY: d[14], newGY: d[15], newNY: d[16],
+          tier: d[17], scPsf: d[18], firstSeen: d[19], lastDrop: d[20],
+          city: d[21]||'Dubai', url: d[22]||'', psf: d[2] ? Math.round(d[7]/d[2]) : 0
+        }));
+
+        const S = window.dashState = window.dashState || {
+          tf:'All', areaF:'All', cityF:'All', bedsF:'All',
+          view:'areas', af:'All', confF:'All',
+          minY:0, maxP:2000000, pg:0, dpg:0,
+          sk:'netYield', sd:'desc', ask:'avgNY', asd:'desc',
+          dsk:'totalDropPct', dsd:'desc', PP:50
+        };
+
+        let fl = LISTINGS;
+        if (S.cityF !== 'All') fl = fl.filter(l => l.city === S.cityF);
+        if (S.bedsF !== 'All') fl = fl.filter(l => l.beds === S.bedsF);
+        if (S.tf !== 'All') fl = fl.filter(l => l.tier === S.tf);
+        if (S.areaF !== 'All') fl = fl.filter(l => l.area === S.areaF);
+        if (S.af !== 'All') fl = fl.filter(l => l.area === S.af);
+        if (S.minY > 0) fl = fl.filter(l => l.grossYield >= S.minY);
+        if (S.maxP < 1e9) fl = fl.filter(l => l.price <= S.maxP);
+        if (S.confF !== 'All') fl = fl.filter(l => l.conf === S.confF);
+        function cmp(a,b,k,d) {
+          let va=a[k],vb=b[k];
+          if(typeof va==='string') return (d==='desc'?-1:1)*va.localeCompare(vb);
+          return (d==='desc'?1:-1)*((va??0)-(vb??0));
+        }
+        fl = fl.slice().sort((a,b) => cmp(a,b,S.sk,S.sd));
+
+        let fa = SUMMARIES;
+        if (S.cityF !== 'All') fa = fa.filter(a => a.city === S.cityF);
+        if (S.bedsF !== 'All') {
+          const bedsAreas = new Set(fl.map(l => l.area));
+          fa = fa.filter(a => bedsAreas.has(a.name));
+        }
+        if (S.tf !== 'All') fa = fa.filter(a => a.tier === S.tf);
+        if (S.areaF !== 'All') fa = fa.filter(a => a.name === S.areaF);
+        fa = fa.slice().sort((a,b) => cmp(a,b,S.ask,S.asd));
+
+        let fd = DROPS;
+        if (S.cityF !== 'All') fd = fd.filter(d => d.city === S.cityF);
+        if (S.bedsF !== 'All') fd = fd.filter(d => d.beds === S.bedsF);
+        if (S.tf !== 'All') fd = fd.filter(d => d.tier === S.tf);
+        if (S.areaF !== 'All') fd = fd.filter(d => d.area === S.areaF);
+        fd = fd.slice().sort((a,b) => cmp(a,b,S.dsk,S.dsd));
+
+        const st = {
+          n: fl.length,
+          ap: fl.length ? fl.reduce((s,l)=>s+l.price,0)/fl.length : 0,
+          minP: fl.length ? Math.min(...fl.map(l=>l.price)) : 0,
+          maxP_: fl.length ? Math.max(...fl.map(l=>l.price)) : 0,
+          agy: fl.length ? fl.reduce((s,l)=>s+l.grossYield,0)/fl.length : 0,
+          any_: fl.length ? fl.reduce((s,l)=>s+l.netYield,0)/fl.length : 0,
+          mgy: fl.length ? Math.max(...fl.map(l=>l.grossYield)) : 0,
+          minGY: fl.length ? Math.min(...fl.map(l=>l.grossYield)) : 0,
+          P: fl.filter(l=>l.tier==='P').length, E: fl.filter(l=>l.tier==='E').length,
+          M: fl.filter(l=>l.tier==='M').length, X: fl.filter(l=>l.tier==='X').length,
+          avgPctDrop: fd.length ? fd.reduce((s,d)=>s+d.totalDropPct,0)/fd.length : 0,
+          bigPctDrop: fd.length ? Math.max(...fd.map(d=>d.totalDropPct)) : 0,
+          bigAedDrop: fd.length ? Math.max(...fd.map(d=>d.totalDrop)) : 0,
+          bigPctDropUrl: fd.length ? fd.reduce((best,d)=>d.totalDropPct>best.totalDropPct?d:best,fd[0]).url : '',
+          bigAedDropUrl: fd.length ? fd.reduce((best,d)=>d.totalDrop>best.totalDrop?d:best,fd[0]).url : '',
+          dropCount: fd.length,
+          dubaiN: LISTINGS.filter(l=>l.city==='Dubai').length,
+          adN: LISTINGS.filter(l=>l.city==='Abu Dhabi').length,
+          br1N: LISTINGS.filter(l=>l.beds==='1BR').length,
+          stN: LISTINGS.filter(l=>l.beds==='Studio').length,
+        };
+        const tp = Math.ceil(fl.length/S.PP)||1;
+        const paged = fl.slice(S.pg*S.PP,(S.pg+1)*S.PP);
+        const dtp = Math.ceil(fd.length/S.PP)||1;
+        const dPaged = fd.slice(S.dpg*S.PP,(S.dpg+1)*S.PP);
+        const allAreas = ['All',...[...new Set(LISTINGS.map(l=>l.area))].filter(Boolean).sort()];
+        function rerender() { render(); }
+
+        let h = '<div style="max-width:1440px">';
+        h += '<h1>UAE Real Estate Market Scanner</h1>';
+        h += '<div class="subtitle">'+LISTINGS.length.toLocaleString()+' sale listings ('+st.dubaiN.toLocaleString()+' Dubai, '+st.adN.toLocaleString()+' Abu Dhabi) matched against rental listings &middot; Property Finder</div>';
+
+        var bigPctVal = st.bigPctDrop>0 ? st.bigPctDrop.toFixed(1)+'%' : '\u2014';
+        var bigAedVal = st.bigAedDrop>0 ? fmt(st.bigAedDrop) : '\u2014';
+        if(st.bigPctDropUrl && st.bigPctDrop>0) bigPctVal = '<a href="'+st.bigPctDropUrl+'" target="_blank">'+bigPctVal+'</a>';
+        if(st.bigAedDropUrl && st.bigAedDrop>0) bigAedVal = '<a href="'+st.bigAedDropUrl+'" target="_blank">'+bigAedVal+'</a>';
+
+        h += '<div class="kpis">';
+        h += '<div class="kpi red"><div class="label">Price Drops</div><div class="value">'+st.dropCount.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Avg % Drop</div><div class="value">'+(st.avgPctDrop>0?st.avgPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Biggest % Drop</div><div class="value">'+bigPctVal+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Biggest AED Drop</div><div class="value">'+bigAedVal+'</div></div>';
+        h += '</div>';
+        h += '<div class="kpis">';
+        h += '<div class="kpi"><div class="label">Avg Price</div><div class="value">'+fmt(st.ap)+' <span class="sub">AED</span></div></div>';
+        h += '<div class="kpi"><div class="label">Min Price</div><div class="value">'+fmt(st.minP)+' <span class="sub">AED</span></div></div>';
+        h += '<div class="kpi"><div class="label">Max Price</div><div class="value">'+fmt(st.maxP_)+' <span class="sub">AED</span></div></div>';
+        h += '</div>';
+        h += '<div class="kpis">';
+        h += '<div class="kpi accent"><div class="label">Avg Gross Yield</div><div class="value">'+st.agy.toFixed(1)+'%</div></div>';
+        h += '<div class="kpi accent"><div class="label">Avg Net Yield</div><div class="value">'+st.any_.toFixed(1)+'%</div></div>';
+        h += '<div class="kpi"><div class="label">Max Gross Yield</div><div class="value">'+st.mgy.toFixed(1)+'%</div></div>';
+        h += '</div>';
+
+        const tierAreas = {P:[],E:[],M:[],X:[]};
+        SUMMARIES.forEach(s => { if(tierAreas[s.tier]) tierAreas[s.tier].push(s.name); });
+        Object.keys(tierAreas).forEach(k => tierAreas[k].sort());
+        const tierInfo = {
+          P:'Premium locations with the highest demand, build quality, and service standards. Areas: '+(tierAreas.P.join(', ')||'none')+'.',
+          E:'Well-maintained communities with strong infrastructure and steady demand. Areas: '+(tierAreas.E.join(', ')||'none')+'.',
+          M:'Affordable communities that are functional but may have mixed maintenance and build quality. Areas: '+(tierAreas.M.join(', ')||'none')+'.',
+          X:'Budget areas typically far from center with lower demand. Areas: '+(tierAreas.X.join(', ')||'none')+'.'
+        };
+
+        h += '<div class="filter-group"><div class="filter-label">City</div><div class="filter-row">';
+        [{k:'All',l:'All Cities'},{k:'Dubai',l:'Dubai ('+st.dubaiN.toLocaleString()+')'},{k:'Abu Dhabi',l:'Abu Dhabi ('+st.adN.toLocaleString()+')'}].forEach(t => {
+          h += '<button class="fbtn'+(S.cityF===t.k?' active':'')+'" data-city="'+t.k+'">'+t.l+'</button>';
+        });
+        h += '</div></div>';
+
+        h += '<div class="filter-group"><div class="filter-label">Unit Type</div><div class="filter-row">';
+        [{k:'All',l:'All Types'},{k:'1BR',l:'1 Bedroom ('+st.br1N.toLocaleString()+')'},{k:'Studio',l:'Studio ('+st.stN.toLocaleString()+')'}].forEach(t => {
+          h += '<button class="fbtn'+(S.bedsF===t.k?' active':'')+'" data-beds="'+t.k+'">'+t.l+'</button>';
+        });
+        h += '</div></div>';
+
+        h += '<div class="filter-group"><div class="filter-label">Quality Filter</div><div class="filter-row">';
+        [{k:'All',l:'All ('+LISTINGS.length.toLocaleString()+')'},{k:'P',l:'Prime ('+st.P+')'},{k:'E',l:'Established ('+st.E+')'},{k:'M',l:'Mid-Tier ('+st.M+')'},{k:'X',l:'Peripheral ('+st.X+')'}].forEach(t => {
+          const act = S.tf===t.k; let sty='';
+          if(act && t.k!=='All') sty='background:'+T[t.k].bg+';border-color:'+T[t.k].bdr+';color:'+T[t.k].color;
+          const ib = t.k!=='All'?' <span class="info-i tier-info" data-tierkey="'+t.k+'">i</span>':'';
+          h += '<button class="fbtn'+(act?' active':'')+'" data-tier="'+t.k+'"'+(sty?' style="'+sty+'"':'')+'>'+t.l+ib+'</button>';
+        });
+        h += '</div></div>';
+
+        const activeAreaBtns = S.cityF==='Abu Dhabi' ? AD_AREAS : S.cityF==='Dubai' ? DUBAI_AREAS : [...DUBAI_AREAS,...AD_AREAS];
+        h += '<div class="filter-group"><div class="filter-label">Areas Filter</div><div class="filter-row">';
+        const aFB = [{k:'All',l:'All Areas'}];
+        activeAreaBtns.forEach(a => { if(allAreas.includes(a)) aFB.push({k:a,l:a}); });
+        aFB.forEach(t => {
+          h += '<button class="fbtn'+(S.areaF===t.k?' active':'')+'" data-areaf="'+t.k+'">'+t.l+'</button>';
+        });
+        h += '</div></div>';
+
+        h += '<div style="display:flex;justify-content:center;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">';
+        h += '<div class="view-tabs">';
+        h += '<button class="view-tab'+(S.view==='areas'?' active':'')+'" data-view="areas">Area Breakdown</button>';
+        if(DROPS.length>0) h += '<button class="view-tab'+(S.view==='drops'?' active':'')+'" data-view="drops">Price Drops ('+fd.length+')</button>';
+        h += '<button class="view-tab'+(S.view==='listings'?' active':'')+'" data-view="listings">All Listings</button>';
+        h += '</div>';
+        h += '</div>';
+        if(S.view==='listings') {
+          h += '<div class="filters" style="justify-content:center">';
+          h += '<select id="areaFilter">'+allAreas.map(a=>'<option value="'+a+'"'+(S.af===a?' selected':'')+'>'+(a==='All'?'All Areas':a)+'</option>').join('')+'</select>';
+          h += '<select id="confFilter"><option value="All"'+(S.confF==='All'?' selected':'')+'>All Matches</option><option value="B"'+(S.confF==='B'?' selected':'')+'>Building Only</option><option value="A"'+(S.confF==='A'?' selected':'')+'>Area Only</option></select>';
+          h += '<label style="font-size:13px;color:var(--text-muted)">Min Yield <input type="number" id="minY" value="'+S.minY+'" min="0" max="12" step="0.5" style="width:52px"/>%</label>';
+          h += '<label style="font-size:13px;color:var(--text-muted)">Max <select id="maxP">'+[500000,800000,1000000,1200000,1500000,1800000,2000000,3000000].map(v=>'<option value="'+v+'"'+(S.maxP===v?' selected':'')+'>AED '+fmt(v)+'</option>').join('')+'</select></label>';
+          h += '</div>';
+        }
+
+        function ath(l,k,left) { const a=S.ask===k,ar=a?(S.asd==='desc'?'\u25BC':'\u25B2'):''; return '<th'+(left?' class="left"':'')+' data-asort="'+k+'">'+l+(ar?' <span class="sort-arrow">'+ar+'</span>':'')+'</th>'; }
+        function lth(l,k,left) { const a=S.sk===k,ar=a?(S.sd==='desc'?'\u25BC':'\u25B2'):''; return '<th'+(left?' class="left"':'')+' data-lsort="'+k+'">'+l+(ar?' <span class="sort-arrow">'+ar+'</span>':'')+'</th>'; }
+        function dth(l,k,left) { const a=S.dsk===k,ar=a?(S.dsd==='desc'?'\u25BC':'\u25B2'):''; return '<th'+(left?' class="left"':'')+' data-dsort="'+k+'">'+l+(ar?' <span class="sort-arrow">'+ar+'</span>':'')+'</th>'; }
+        function furnLabel(f) { return f===1?'Furn':f===2?'Partly':'Unfurn'; }
+        function gyColor(v) { return v>=7?'var(--accent-green)':v<4?'var(--accent-red)':'var(--text-bright)'; }
+        function nyColor(v) { return v>=6?'var(--accent-green)':v<3?'var(--accent-red)':'var(--text-bright)'; }
+        function bColor(v) { return v>=80?'var(--accent-green)':v>=50?'var(--accent-blue)':'var(--text-dim)'; }
+
+        if(S.view==='areas') {
+          h += '<div class="table-wrap"><table><thead><tr>';
+          h += ath('Area','name',true)+ath('City','city')+ath('Sales','count')+ath('Rents','rentals')+ath('Bldg%','bldgPct')+ath('Avg Price','avgPrice')+ath('Median','medPrice')+ath('Avg Rent','avgRent')+ath('R/sqft','medRpsf')+ath('Gross Yield','avgGY')+ath('Net Yield','avgNY')+ath('SC/sf','scPsf')+ath('Tier','tier');
+          h += '</tr></thead><tbody>';
+          fa.forEach((a,i) => {
+            const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)';
+            h += '<tr style="background:'+bg+'">';
+            h += '<td class="left" style="font-weight:600;color:var(--text-bright);white-space:nowrap"><span class="area-link" data-area="'+a.name+'">'+a.name+'</span></td>';
+            h += '<td class="left" style="color:var(--text-dim);font-size:12px">'+a.city+'</td>';
+            h += '<td>'+a.count+'</td><td style="color:var(--text-dim)">'+a.rentals+'</td>';
+            h += '<td style="color:'+bColor(a.bldgPct)+'">'+a.bldgPct+'%</td>';
+            h += '<td>'+fmt(a.avgPrice)+'</td><td style="color:var(--text-dim)">'+fmt(a.medPrice)+'</td>';
+            h += '<td style="color:var(--text-dim)">'+fmt(a.avgRent)+'</td><td style="color:var(--text-dim)">'+a.medRpsf+'</td>';
+            h += '<td style="font-weight:700;color:'+gyColor(a.avgGY)+'">'+pct(a.avgGY)+'</td>';
+            h += '<td style="font-weight:600;color:'+nyColor(a.avgNY)+'">'+pct(a.avgNY)+'</td>';
+            h += '<td style="color:var(--text-dim)">'+a.scPsf+'</td>';
+            h += '<td><span class="badge" style="background:'+T[a.tier].bg+';color:'+T[a.tier].color+'">'+T[a.tier].label+'</span></td>';
+            h += '</tr>';
+          });
+          h += '</tbody></table></div>';
+        }
+
+        if(S.view==='drops') {
+          if(fd.length===0) {
+            h += '<div style="padding:28px;text-align:center;color:var(--text-muted);font-size:14px">No price drops detected yet. Run process_data.py again after your next data download.</div>';
+          } else {
+            h += '<div class="table-wrap drops-table"><table><thead><tr>';
+            h += dth('Building / Area','building',true)+dth('Original','firstPrice')+dth('Previous','prevPrice')+dth('Current','curPrice');
+            h += dth('Last Drop','dropPrev')+dth('Last %','dropPctPrev')+dth('Total Drop','totalDrop')+dth('Total %','totalDropPct');
+            h += dth('Drops','dropCount')+dth('Old GY','oldGY')+dth('New GY','newGY')+dth('Old NY','oldNY')+dth('New NY','newNY')+dth('Tier','tier');
+            h += '</tr></thead><tbody>';
+            dPaged.forEach((d,i) => {
+              const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)';
+              const bName = d.url ? '<a href="'+d.url+'" target="_blank" class="bld-link">'+d.building+'</a>' : d.building;
+              h += '<tr style="background:'+bg+'">';
+              h += '<td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td>';
+              h += '<td style="color:var(--text-dim)">'+fmt(d.firstPrice)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevPrice)+'</td>';
+              h += '<td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curPrice)+'</td>';
+              h += '<td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td>';
+              h += '<td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td>';
+              h += '<td>'+d.dropCount+'</td>';
+              h += '<td style="color:var(--text-dim)">'+pct(d.oldGY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newGY)+'</td>';
+              h += '<td style="color:var(--text-dim)">'+pct(d.oldNY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newNY)+'</td>';
+              h += '<td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td>';
+              h += '</tr>';
+            });
+            h += '</tbody></table></div>';
+            h += '<div class="pagination"><span style="color:var(--text-muted)">Showing '+(S.dpg*S.PP+1)+'\u2013'+Math.min((S.dpg+1)*S.PP,fd.length)+' of '+fd.length.toLocaleString()+' drops</span>';
+            h += '<div style="display:flex;gap:4px"><button class="pg-btn" id="prevDPg"'+(S.dpg===0?' disabled':'')+'>&larr; Prev</button><span style="padding:4px 10px;color:var(--text-muted)">'+(S.dpg+1)+'/'+dtp+'</span><button class="pg-btn" id="nextDPg"'+(S.dpg>=dtp-1?' disabled':'')+ '>Next &rarr;</button></div></div>';
+          }
+        }
+
+        if(S.view==='listings') {
+          h += '<div class="table-wrap"><table><thead><tr>';
+          h += '<th style="width:32px;text-align:center;cursor:default">#</th>'+lth('Building / Area','building',true)+lth('City','city')+lth('Type','beds')+lth('Price','price')+lth('Sqft','sqft')+lth('AED/sf','psf')+lth('Gross Yield','grossYield')+lth('Net Yield','netYield')+lth('Tier','tier');
+          h += '</tr></thead><tbody>';
+          paged.forEach((l,i) => {
+            const idx=S.pg*S.PP+i+1;
+            const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)';
+            const bName = l.url ? '<a href="'+l.url+'" target="_blank" class="bld-link">'+l.building+'</a>' : l.building;
+            h += '<tr style="background:'+bg+'">';
+            h += '<td style="text-align:center;color:var(--text-faint);font-size:12px">'+idx+'</td>';
+            h += '<td class="left"><div style="display:flex;align-items:center"><span class="conf-dot" style="background:'+(l.conf==='B'?'var(--accent-green)':'var(--text-muted)')+'"></span><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+l.area+' &middot; '+furnLabel(l.furnished)+'</div></div></div></td>';
+            h += '<td class="left" style="color:var(--text-dim);font-size:12px">'+l.city+'</td>';
+            h += '<td style="color:var(--text-dim);font-size:12px">'+l.beds+'</td>';
+            h += '<td style="font-weight:600;color:var(--text-bright)">'+fmt(l.price)+'</td>';
+            h += '<td style="color:var(--text-dim)">'+fmt(l.sqft)+'</td><td style="color:var(--text-dim)">'+fmt(l.psf)+'</td>';
+            h += '<td style="font-weight:700;color:'+gyColor(l.grossYield)+'">'+pct(l.grossYield)+'</td>';
+            h += '<td style="font-weight:600;color:'+nyColor(l.netYield)+'">'+pct(l.netYield)+'</td>';
+            h += '<td><span class="badge" style="background:'+T[l.tier].bg+';color:'+T[l.tier].color+'">'+T[l.tier].label+'</span></td>';
+            h += '</tr>';
+          });
+          h += '</tbody></table></div>';
+          h += '<div class="pagination"><span style="color:var(--text-muted)">Showing '+(S.pg*S.PP+1)+'\u2013'+Math.min((S.pg+1)*S.PP,fl.length)+' of '+fl.length.toLocaleString()+'</span>';
+          h += '<div style="display:flex;gap:4px"><button class="pg-btn" id="prevPg"'+(S.pg===0?' disabled':'')+'>&larr; Prev</button><span style="padding:4px 10px;color:var(--text-muted)">'+(S.pg+1)+'/'+tp+'</span><button class="pg-btn" id="nextPg"'+(S.pg>=tp-1?' disabled':'')+ '>Next &rarr;</button></div></div>';
+        }
+
+        h += '<div class="footer"><strong style="color:var(--text-dim)">Data:</strong> '+LISTINGS.length.toLocaleString()+' sale listings (Dubai + Abu Dhabi, studios + 1BR) matched to rental listings. Yields use building-level median rent/sqft where comps exist, area-level otherwise. Net yields deduct area-specific service charges. Click any building name to view the listing on Property Finder.</div>';
+        h += '</div>';
+        document.getElementById('root').innerHTML = h;
+
+        let activePopup=null;
+        function removePopup(){if(activePopup){activePopup.remove();activePopup=null;}}
+        function showPopup(el,text){removePopup();const p=document.createElement('div');p.className='info-popup';p.textContent=text;document.body.appendChild(p);const r=el.getBoundingClientRect();p.style.left=Math.min(r.left,window.innerWidth-p.offsetWidth-12)+'px';p.style.top=(r.top-p.offsetHeight-8)+'px';if(parseInt(p.style.top)<4)p.style.top=(r.bottom+8)+'px';activePopup=p;}
+        document.querySelectorAll('.info-i[title]').forEach(el=>{el.addEventListener('mouseenter',e=>{e.stopPropagation();showPopup(el,el.getAttribute('title'));});el.addEventListener('mouseleave',removePopup);el.addEventListener('click',e=>e.stopPropagation());});
+        document.querySelectorAll('.info-i.tier-info').forEach(el=>{const k=el.dataset.tierkey;el.addEventListener('mouseenter',e=>{e.stopPropagation();showPopup(el,tierInfo[k]);});el.addEventListener('mouseleave',removePopup);el.addEventListener('click',e=>e.stopPropagation());});
+        document.querySelectorAll('[data-asort]').forEach(th=>{th.onclick=()=>{const k=th.dataset.asort;if(S.ask===k)S.asd=S.asd==='desc'?'asc':'desc';else{S.ask=k;S.asd='desc';}rerender();};});
+        document.querySelectorAll('[data-lsort]').forEach(th=>{th.onclick=()=>{const k=th.dataset.lsort;if(S.sk===k)S.sd=S.sd==='desc'?'asc':'desc';else{S.sk=k;S.sd='desc';}S.pg=0;rerender();};});
+        document.querySelectorAll('[data-dsort]').forEach(th=>{th.onclick=()=>{const k=th.dataset.dsort;if(S.dsk===k)S.dsd=S.dsd==='desc'?'asc':'desc';else{S.dsk=k;S.dsd='desc';}S.dpg=0;rerender();};});
+        document.querySelectorAll('[data-city]').forEach(btn=>{btn.onclick=()=>{S.cityF=btn.dataset.city;S.areaF='All';S.pg=0;S.dpg=0;rerender();};});
+        document.querySelectorAll('[data-beds]').forEach(btn=>{btn.onclick=()=>{S.bedsF=btn.dataset.beds;S.pg=0;S.dpg=0;rerender();};});
+        document.querySelectorAll('[data-tier]').forEach(btn=>{btn.onclick=e=>{if(e.target.classList.contains('info-i'))return;S.tf=btn.dataset.tier;S.pg=0;S.dpg=0;rerender();};});
+        document.querySelectorAll('[data-areaf]').forEach(btn=>{btn.onclick=()=>{S.areaF=btn.dataset.areaf;S.pg=0;S.dpg=0;rerender();};});
+        document.querySelectorAll('.view-tab').forEach(btn=>{btn.onclick=()=>{S.view=btn.dataset.view;S.pg=0;S.dpg=0;rerender();};});
+        document.querySelectorAll('.area-link').forEach(el=>{el.onclick=()=>{S.af=el.dataset.area;S.areaF='All';S.confF='All';S.minY=0;S.maxP=3000000;S.view='listings';S.pg=0;rerender();};});
+        const aF=document.getElementById('areaFilter');if(aF)aF.onchange=()=>{S.af=aF.value;S.pg=0;rerender();};
+        const cF=document.getElementById('confFilter');if(cF)cF.onchange=()=>{S.confF=cF.value;S.pg=0;rerender();};
+        const mY=document.getElementById('minY');if(mY)mY.onchange=()=>{S.minY=parseFloat(mY.value)||0;S.pg=0;rerender();};
+        const mP=document.getElementById('maxP');if(mP)mP.onchange=()=>{S.maxP=parseInt(mP.value,10)||3000000;S.pg=0;rerender();};
+        const pP=document.getElementById('prevPg');if(pP)pP.onclick=()=>{S.pg=Math.max(0,S.pg-1);rerender();};
+        const nP=document.getElementById('nextPg');if(nP)nP.onclick=()=>{S.pg=Math.min(tp-1,S.pg+1);rerender();};
+        const dPP=document.getElementById('prevDPg');if(dPP)dPP.onclick=()=>{S.dpg=Math.max(0,S.dpg-1);rerender();};
+        const dNP=document.getElementById('nextDPg');if(dNP)dNP.onclick=()=>{S.dpg=Math.min(dtp-1,S.dpg+1);rerender();};
+      }
+      window.render = render;
+      fetch(DATA_URL).then(r=>r.ok?r.json():Promise.reject()).then(data=>{window.RAW=data;render();}).catch(()=>{window.RAW=null;render();});
+    })();
+  </script>
+</body>
+</html>
