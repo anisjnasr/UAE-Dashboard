@@ -1,8 +1,15 @@
 (async () => {
+  const PF_BASE = window.location.origin || 'https://www.propertyfinder.ae';
   const doc = document.querySelector('#__NEXT_DATA__');
   const firstPage = JSON.parse(doc.textContent);
   const perPage = firstPage.props.pageProps.searchResult.properties.length;
   
+  const toFullUrl = (path) => {
+    if (!path) return '';
+    if (String(path).startsWith('http')) return path;
+    return PF_BASE + (String(path).startsWith('/') ? path : `/${path}`);
+  };
+
   const extract = (p) => ({
     id: p.id,
     price: p.price?.value,
@@ -14,7 +21,67 @@
     sub: (p.location?.location_tree?.find(n => n.type === 'SUBCOMMUNITY') || {}).name || '',
     completion: p.completion_status,
     path: p.details_path,
+    url: toFullUrl(p.details_path),
   });
+
+  const inferCity = (listings) => {
+    const counts = {};
+    for (const listing of listings) {
+      const p = String(listing.path || '').toLowerCase();
+      let city = null;
+      if (p.includes('-dubai-')) city = 'Dubai';
+      if (p.includes('-abu-dhabi-')) city = 'Abu Dhabi';
+      if (city) counts[city] = (counts[city] || 0) + 1;
+    }
+    const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    return best ? best[0] : 'Unknown City';
+  };
+
+  const inferPropertyType = (listings) => {
+    const rx = /(apartment|townhouse|villa|penthouse|duplex)-for-(sale|rent)/i;
+    const counts = {};
+    for (const listing of listings.slice(0, 300)) {
+      const match = String(listing.path || '').match(rx);
+      if (!match) continue;
+      const key = match[1].toLowerCase();
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    return best ? best[0] : 'unit';
+  };
+
+  const normalizeBedLabel = (value) => {
+    const s = String(value || '').trim().toLowerCase();
+    if (s === 'studio' || s === '0') return 'studio';
+    if (/^\d+$/.test(s)) return `${s} bedroom`;
+    return 'unit';
+  };
+
+  const inferUnitType = (listings) => {
+    const bedCounts = {};
+    for (const listing of listings) {
+      const label = normalizeBedLabel(listing.beds);
+      bedCounts[label] = (bedCounts[label] || 0) + 1;
+    }
+    const topBed = Object.entries(bedCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'unit';
+    const propertyType = inferPropertyType(listings);
+    if (propertyType === 'apartment' || propertyType === 'unit') return topBed;
+    if (topBed.endsWith('bedroom') || topBed === 'studio') return `${topBed} ${propertyType}`;
+    return propertyType;
+  };
+
+  const sanitizeFilename = (name) =>
+    name
+      .replace(/[<>:"/\\|?*]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const buildOutputFilename = (listings) => {
+    const city = inferCity(listings);
+    const unitType = inferUnitType(listings);
+    const listingType = 'sales';
+    return sanitizeFilename(`${city} - ${unitType} - ${listingType} data.json`);
+  };
   
   let all = firstPage.props.pageProps.searchResult.properties.map(extract);
   const totalText = document.body.innerText.match(/([\d,]+)\s*properties/);
@@ -52,11 +119,16 @@
     await new Promise(r => setTimeout(r, page % 50 === 0 ? 3000 : 1000));
   }
   
+  const city = inferCity(all);
+  const unitType = inferUnitType(all);
+  const filename = buildOutputFilename(all);
   const blob = new Blob([JSON.stringify({
     type: "sales", extracted_at: new Date().toISOString(),
+    city, unit_type: unitType, listing_type: "sales",
+    source_url: window.location.href,
     total: all.length, expected: totalListings, listings: all
   })], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = `pf_sales_slim_${new Date().toISOString().slice(0,10)}.json`; a.click();
-  console.log(`✅ Done! ${all.length} sales listings. File should be ~3-5 MB.`);
+  a.download = filename; a.click();
+  console.log(`✅ Done! ${all.length} sales listings. Saved as: ${filename}`);
 })();

@@ -1,6 +1,6 @@
 """
 Process all scraped Property Finder data into dashboard_data.json.
-Handles Dubai + Abu Dhabi, studios + 1BR, tracks price drops in SQLite.
+Handles Dubai + Abu Dhabi, multi-bed unit types, tracks price/rent drops in SQLite.
 
 Usage: python process_data.py
 """
@@ -27,19 +27,19 @@ from config.area_tiers import (
 
 PF_BASE = "https://www.propertyfinder.ae"
 
-# All sales/rental JSON files to load
-SALES_FILES = [
-    DATA_DIR / "sales.json",
-    DATA_DIR / "dubai_studio_sales.json",
-    DATA_DIR / "ad_1br_sales.json",
-    DATA_DIR / "ad_studio_sales.json",
-]
-RENTAL_FILES = [
-    DATA_DIR / "rentals.json",
-    DATA_DIR / "dubai_studio_rentals.json",
-    DATA_DIR / "ad_1br_rentals.json",
-    DATA_DIR / "ad_studio_rentals.json",
-]
+# Legacy names kept for backward compatibility
+LEGACY_SALES_FILES = {
+    "sales.json",
+    "dubai_studio_sales.json",
+    "ad_1br_sales.json",
+    "ad_studio_sales.json",
+}
+LEGACY_RENTAL_FILES = {
+    "rentals.json",
+    "dubai_studio_rentals.json",
+    "ad_1br_rentals.json",
+    "ad_studio_rentals.json",
+}
 
 # ---- Dubai area slug map ----
 DUBAI_SLUG_TO_AREA = {
@@ -110,11 +110,21 @@ _AD_SLUGS = sorted(AD_SLUG_TO_AREA.keys(), key=len, reverse=True)
 def detect_city(path):
     if not path:
         return None
-    if "-dubai-" in path:
+    p = str(path).lower()
+    if "-dubai-" in p or "/dubai/" in p:
         return "Dubai"
-    if "-abu-dhabi-" in path:
+    if "-abu-dhabi-" in p or "/abu-dhabi/" in p:
         return "Abu Dhabi"
     return None
+
+
+def detect_city_from_listing(listing):
+    explicit_city = (listing.get("city") or "").strip().lower()
+    if explicit_city == "dubai":
+        return "Dubai"
+    if explicit_city in {"abu dhabi", "abu-dhabi"}:
+        return "Abu Dhabi"
+    return detect_city(listing.get("path"))
 
 
 def extract_area(path):
@@ -144,9 +154,27 @@ def norm_beds(v):
     s = str(v).strip().lower()
     if s in ("0", "studio"):
         return "Studio"
-    if s == "1":
-        return "1BR"
+    if re.match(r"^\d+$", s):
+        return f"{int(s)}BR"
     return None
+
+
+def norm_beds_tracking(v, listing=None):
+    unit_type = ""
+    if listing:
+        unit_type = str(listing.get("unit_type", "")).strip().lower()
+    if unit_type == "studio":
+        return "Studio"
+    m = re.match(r"^(\d+)\s*br$", unit_type)
+    if m:
+        return f"{m.group(1)}BR"
+
+    s = str(v).strip().lower()
+    if s in ("0", "studio"):
+        return "Studio"
+    if re.match(r"^\d+$", s):
+        return f"{int(s)}BR"
+    return "Other"
 
 
 def sc_for_area(area):
@@ -159,6 +187,87 @@ def sc_for_area(area):
 def load_json(path):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def infer_file_kind(path, payload):
+    """Classify input JSON file as sales or rentals."""
+    f_name = path.name.lower()
+    p_type = str(payload.get("type", "")).lower()
+    listing_type = str(payload.get("listing_type", "")).lower()
+
+    if "sale" in p_type or "buy" in p_type or "sale" in listing_type:
+        return "sales"
+    if "rent" in p_type or "rent" in listing_type:
+        return "rentals"
+
+    if (
+        "sales data" in f_name
+        or "_sales" in f_name
+        or f_name in LEGACY_SALES_FILES
+        or f_name.startswith("sales")
+    ):
+        return "sales"
+    if (
+        "rental data" in f_name
+        or "rentals" in f_name
+        or "_rental" in f_name
+        or f_name in LEGACY_RENTAL_FILES
+        or f_name.startswith("rental")
+    ):
+        return "rentals"
+
+    listings = payload.get("listings", [])
+    if listings:
+        sample = listings[: min(50, len(listings))]
+        rent_votes = 0
+        sales_votes = 0
+        for row in sample:
+            period = str(row.get("period", "")).lower()
+            path_val = str(row.get("path", "")).lower()
+            if any(k in period for k in ("month", "year", "annual", "week", "day")):
+                rent_votes += 1
+            if "/rent/" in path_val:
+                rent_votes += 1
+            if "/buy/" in path_val or "/sale/" in path_val:
+                sales_votes += 1
+        if rent_votes > sales_votes:
+            return "rentals"
+        if sales_votes > rent_votes:
+            return "sales"
+
+    return None
+
+
+def discover_input_files(data_dir):
+    """Load all valid listing JSON files from data directory."""
+    sales_sources = []
+    rental_sources = []
+    skip_names = {"dashboard_data.json"}
+
+    for fp in sorted(data_dir.glob("*.json")):
+        if fp.name in skip_names:
+            continue
+        try:
+            payload = load_json(fp)
+        except Exception as exc:
+            print(f"  Skipped {fp.name}: could not parse JSON ({exc})")
+            continue
+
+        if not isinstance(payload, dict):
+            continue
+        listings = payload.get("listings", [])
+        if not isinstance(listings, list):
+            continue
+
+        kind = infer_file_kind(fp, payload)
+        if kind == "sales":
+            sales_sources.append((fp, payload))
+        elif kind == "rentals":
+            rental_sources.append((fp, payload))
+        else:
+            print(f"  Skipped {fp.name}: unable to infer sales/rentals type")
+
+    return sales_sources, rental_sources
 
 
 def norm_sqft(v):
@@ -234,6 +343,19 @@ def init_db(db_path):
         drop_from_prev REAL, drop_pct_from_prev REAL,
         total_drop REAL, total_drop_pct REAL,
         drop_count INTEGER, first_seen TEXT, last_drop_date TEXT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS rental_history (
+        listing_id TEXT NOT NULL, snapshot_date TEXT NOT NULL,
+        annual_rent REAL NOT NULL, rent_raw REAL, period TEXT,
+        sqft INTEGER, beds TEXT, building TEXT,
+        area TEXT, city TEXT, path TEXT, furnished TEXT,
+        PRIMARY KEY (listing_id, snapshot_date))""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS rental_drops (
+        listing_id TEXT PRIMARY KEY, building TEXT, area TEXT, city TEXT,
+        sqft INTEGER, beds TEXT, furnished TEXT,
+        first_rent REAL, previous_rent REAL, current_rent REAL,
+        drop_from_prev REAL, drop_pct_from_prev REAL,
+        total_drop REAL, total_drop_pct REAL,
+        drop_count INTEGER, first_seen TEXT, last_drop_date TEXT)""")
     # Add city column if missing (migration for existing DBs)
     try:
         conn.execute("SELECT city FROM listing_history LIMIT 1")
@@ -243,6 +365,10 @@ def init_db(db_path):
         conn.execute("SELECT city FROM price_drops LIMIT 1")
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE price_drops ADD COLUMN city TEXT DEFAULT 'Dubai'")
+    try:
+        conn.execute("SELECT period FROM rental_history LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE rental_history ADD COLUMN period TEXT DEFAULT ''")
     conn.commit()
     return conn
 
@@ -256,9 +382,10 @@ def store_snapshot(conn, sales_filtered, snapshot_date):
             continue
         seen.add(lid)
         city, area = extract_area(s.get("path"))
+        city = city or detect_city_from_listing(s)
         rows.append((
             lid, snapshot_date, float(s.get("price", 0)),
-            norm_sqft(s.get("sqft")), norm_beds(s.get("beds")),
+            norm_sqft(s.get("sqft")), norm_beds_tracking(s.get("beds"), s),
             (s.get("building") or "").strip(),
             area or "Other", city or "Dubai",
             s.get("path", ""), (s.get("furnished") or "").strip(),
@@ -266,6 +393,34 @@ def store_snapshot(conn, sales_filtered, snapshot_date):
     conn.executemany("""INSERT OR REPLACE INTO listing_history
         (listing_id, snapshot_date, price, sqft, beds, building, area, city, path, furnished)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", rows)
+    conn.commit()
+    return len(rows)
+
+
+def store_rental_snapshot(conn, rentals_filtered, snapshot_date):
+    rows = []
+    seen = set()
+    for r in rentals_filtered:
+        lid = str(r.get("id", ""))
+        if not lid or lid in seen:
+            continue
+        seen.add(lid)
+        city, area = extract_area(r.get("path"))
+        city = city or detect_city_from_listing(r)
+        ann = annual_rent(r.get("rent"), r.get("period"))
+        if ann is None or ann <= 0:
+            continue
+        rows.append((
+            lid, snapshot_date, float(ann),
+            float(r.get("rent") or 0), (r.get("period") or "").strip(),
+            norm_sqft(r.get("sqft")), norm_beds_tracking(r.get("beds"), r),
+            (r.get("building") or "").strip(),
+            area or "Other", city or "Dubai",
+            r.get("path", ""), (r.get("furnished") or "").strip(),
+        ))
+    conn.executemany("""INSERT OR REPLACE INTO rental_history
+        (listing_id, snapshot_date, annual_rent, rent_raw, period, sqft, beds, building, area, city, path, furnished)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", rows)
     conn.commit()
     return len(rows)
 
@@ -319,6 +474,55 @@ def compute_drops(conn, snapshot_date):
     return drops_found
 
 
+def compute_rental_drops(conn, snapshot_date):
+    cur = conn.execute(
+        "SELECT listing_id, annual_rent, sqft, beds, building, area, city, furnished "
+        "FROM rental_history WHERE snapshot_date = ?", (snapshot_date,))
+    current = {r[0]: r for r in cur.fetchall()}
+    drops_found = 0
+    for lid, row in current.items():
+        cur_rent, sqft, beds, building, area, city, furnished = row[1:]
+        prior = conn.execute(
+            "SELECT annual_rent, snapshot_date FROM rental_history "
+            "WHERE listing_id = ? AND snapshot_date < ? ORDER BY snapshot_date ASC",
+            (lid, snapshot_date)).fetchall()
+        if not prior:
+            continue
+        first_rent = prior[0][0]
+        prev_rent = prior[-1][0]
+        if cur_rent >= prev_rent:
+            existing = conn.execute(
+                "SELECT current_rent FROM rental_drops WHERE listing_id = ?", (lid,)
+            ).fetchone()
+            if existing and cur_rent < first_rent:
+                conn.execute("""UPDATE rental_drops SET current_rent=?, previous_rent=?,
+                    total_drop=?, total_drop_pct=?, drop_from_prev=0, drop_pct_from_prev=0
+                    WHERE listing_id=?""", (
+                    cur_rent, prev_rent, first_rent - cur_rent,
+                    round((first_rent - cur_rent) / first_rent * 100, 2), lid))
+            continue
+        drop_from_prev = prev_rent - cur_rent
+        drop_pct_from_prev = round(drop_from_prev / prev_rent * 100, 2) if prev_rent > 0 else 0
+        total_drop = first_rent - cur_rent
+        total_drop_pct = round(total_drop / first_rent * 100, 2) if first_rent > 0 else 0
+        rent_chain = [first_rent] + [p for p, _ in prior[1:]] + [cur_rent]
+        drop_count = sum(1 for i in range(1, len(rent_chain)) if rent_chain[i] < rent_chain[i - 1])
+        first_seen = prior[0][1]
+        conn.execute("""INSERT OR REPLACE INTO rental_drops
+            (listing_id, building, area, city, sqft, beds, furnished,
+             first_rent, previous_rent, current_rent,
+             drop_from_prev, drop_pct_from_prev, total_drop, total_drop_pct,
+             drop_count, first_seen, last_drop_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+            lid, building, area, city, sqft, beds, furnished,
+            first_rent, prev_rent, cur_rent,
+            drop_from_prev, drop_pct_from_prev, total_drop, total_drop_pct,
+            drop_count, first_seen, snapshot_date))
+        drops_found += 1
+    conn.commit()
+    return drops_found
+
+
 def load_all_drops(conn):
     return conn.execute("""SELECT listing_id, building, area, city, sqft, beds, furnished,
         first_price, previous_price, current_price,
@@ -327,25 +531,30 @@ def load_all_drops(conn):
         FROM price_drops WHERE total_drop > 0 ORDER BY total_drop_pct DESC""").fetchall()
 
 
+def load_all_rental_drops(conn):
+    return conn.execute("""SELECT listing_id, building, area, city, sqft, beds, furnished,
+        first_rent, previous_rent, current_rent,
+        drop_from_prev, drop_pct_from_prev, total_drop, total_drop_pct,
+        drop_count, first_seen, last_drop_date
+        FROM rental_drops WHERE total_drop > 0 ORDER BY total_drop_pct DESC""").fetchall()
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Load ALL sales and rentals from all files, dedup by id
+    # Load ALL sales and rentals from all valid JSON files, dedup by id
     all_sales_raw = []
     all_rentals_raw = []
-    for fp in SALES_FILES:
-        if fp.exists():
-            d = load_json(fp)
-            all_sales_raw.extend(d.get("listings", []))
-            print(f"  Loaded {len(d.get('listings', []))} sales from {fp.name}")
-    for fp in RENTAL_FILES:
-        if fp.exists():
-            d = load_json(fp)
-            all_rentals_raw.extend(d.get("listings", []))
-            print(f"  Loaded {len(d.get('listings', []))} rentals from {fp.name}")
+    sales_sources, rental_sources = discover_input_files(DATA_DIR)
+    for fp, payload in sales_sources:
+        all_sales_raw.extend(payload.get("listings", []))
+        print(f"  Loaded {len(payload.get('listings', []))} sales from {fp.name}")
+    for fp, payload in rental_sources:
+        all_rentals_raw.extend(payload.get("listings", []))
+        print(f"  Loaded {len(payload.get('listings', []))} rentals from {fp.name}")
 
     # Dedup by id
     seen_ids = set()
@@ -365,7 +574,7 @@ def main():
 
     print(f"\nAfter dedup: {len(sales_dedup)} sales, {len(rentals_dedup)} rentals")
 
-    # Filter: completed, valid sqft, studio or 1BR only
+    # Filter: completed, valid sqft, any supported unit type
     sales = []
     for s in sales_dedup:
         beds = norm_beds(s.get("beds"))
@@ -380,12 +589,29 @@ def main():
         price = float(s.get("price") or 0)
         if price <= 0:
             continue
-        city = detect_city(s.get("path"))
+        city = detect_city_from_listing(s)
         if city is None:
             continue
         sales.append(s)
 
-    print(f"Filtered sales (completed, studio/1BR, valid sqft): {len(sales)}")
+    print(f"Filtered sales (completed, valid sqft): {len(sales)}")
+    rentals_for_tracking = []
+    for r in rentals_dedup:
+        beds = norm_beds(r.get("beds"))
+        if beds is None:
+            continue
+        sqft = norm_sqft(r.get("sqft"))
+        if sqft is None:
+            continue
+        ann = annual_rent(r.get("rent"), r.get("period"))
+        if ann is None or ann <= 0:
+            continue
+        city = detect_city_from_listing(r)
+        if city is None:
+            continue
+        rentals_for_tracking.append(r)
+
+    print(f"Filtered rentals (valid sqft): {len(rentals_for_tracking)}")
 
     # --- SQLite ---
     snapshot_date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -394,9 +620,16 @@ def main():
     print(f"Stored {stored} in snapshot {snapshot_date}")
     n_snap = conn.execute("SELECT COUNT(DISTINCT snapshot_date) FROM listing_history").fetchone()[0]
     print(f"Total snapshots: {n_snap}")
+    rental_stored = store_rental_snapshot(conn, rentals_for_tracking, snapshot_date)
+    print(f"Stored {rental_stored} rentals in snapshot {snapshot_date}")
+    n_rental_snap = conn.execute("SELECT COUNT(DISTINCT snapshot_date) FROM rental_history").fetchone()[0]
+    print(f"Total rental snapshots: {n_rental_snap}")
     if n_snap >= 2:
         drops_found = compute_drops(conn, snapshot_date)
         print(f"Price drops detected: {drops_found}")
+    if n_rental_snap >= 2:
+        rental_drops_found = compute_rental_drops(conn, snapshot_date)
+        print(f"Rental drops detected: {rental_drops_found}")
 
     # --- Build rental indexes ---
     by_building = defaultdict(list)
@@ -508,6 +741,31 @@ def main():
             old_gy, old_ny, new_gy, new_ny, tier, sc_psf,
             first_seen or "", last_drop_date or "", city or "Dubai", url,
         ])
+    all_rental_drops = load_all_rental_drops(conn)
+    rental_drops_out = []
+    for row in all_rental_drops:
+        (lid, building, area, city, sqft, beds, furnished,
+         first_rent, prev_rent, cur_rent,
+         drop_prev, drop_pct_prev, total_drop, total_drop_pct,
+         drop_count, first_seen, last_drop_date) = row
+        building = building or "Unknown"
+        area = area or "Other"
+        city = city or "Dubai"
+        area_idx = areas.index(area) if area in areas else 0
+        furn_code = norm_furnished(furnished)
+        tier = AREA_TIERS.get(area, DEFAULT_TIER)
+        url_row = conn.execute(
+            "SELECT path FROM rental_history WHERE listing_id = ? ORDER BY snapshot_date DESC LIMIT 1",
+            (lid,)).fetchone()
+        url = PF_BASE + (url_row[0] if url_row and url_row[0] else "")
+
+        rental_drops_out.append([
+            building, area_idx, sqft or 0, beds or "Studio", furn_code,
+            round(first_rent), round(prev_rent), round(cur_rent),
+            round(drop_prev), round(drop_pct_prev, 1),
+            round(total_drop), round(total_drop_pct, 1), drop_count,
+            first_seen or "", last_drop_date or "", city, url, tier,
+        ])
     conn.close()
 
     # --- Area summaries ---
@@ -561,7 +819,7 @@ def main():
             round(avg_gy, 1), round(avg_ny, 1), sc_psf, tier, med_rpsf, area_city,
         ])
 
-    out = {"a": areas, "l": listings_out, "s": summaries_out, "d": drops_out}
+    out = {"a": areas, "l": listings_out, "s": summaries_out, "d": drops_out, "rd": rental_drops_out}
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump(out, f, separators=(",", ":"))
 
@@ -573,7 +831,10 @@ def main():
         city_counts[row[10]] += 1
         beds_counts[row[11]] += 1
         tier_counts[row[7]] += 1
-    print(f"\nOutput: {len(listings_out)} listings, {len(summaries_out)} areas, {len(drops_out)} drops")
+    print(
+        f"\nOutput: {len(listings_out)} listings, {len(summaries_out)} areas, "
+        f"{len(drops_out)} price drops, {len(rental_drops_out)} rental drops"
+    )
     print(f"Cities: {dict(city_counts)}")
     print(f"Unit types: {dict(beds_counts)}")
     print(f"Tiers: {dict(tier_counts)}")

@@ -98,6 +98,138 @@
     .theme-toggle svg { width: 20px; height: 20px; fill: none; stroke: var(--toggle-icon); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: stroke 0.25s; }
 
     .header-row { display: flex; justify-content: space-between; align-items: flex-start; }
+    .mobile-filter-dock { position: static; }
+    .quick-filter-bar { display: none; }
+    .quick-chip-group { display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .quick-chip-group::-webkit-scrollbar { display: none; }
+
+    @media (max-width: 1024px) {
+      body { padding: 16px; }
+      .kpis { gap: 10px; }
+      .kpi { min-width: 140px; padding: 10px 12px; }
+      .kpi .value { font-size: 20px; }
+      h1 { font-size: 24px; }
+      .subtitle { font-size: 13px; margin-bottom: 14px; }
+      .theme-toggle { top: 12px; right: 12px; width: 36px; height: 36px; }
+      .theme-toggle svg { width: 18px; height: 18px; }
+    }
+
+    @media (max-width: 768px) {
+      body { padding: 12px; font-size: 14px; }
+      h1 { font-size: 21px; margin-top: 30px; }
+      .subtitle { font-size: 12px; line-height: 1.4; margin-bottom: 12px; }
+      .kpis { gap: 8px; margin-bottom: 10px; }
+      .kpi { flex: 1 1 calc(50% - 8px); min-width: 0; padding: 9px 10px; }
+      .kpi .label { font-size: 10px; }
+      .kpi .value { font-size: 17px; }
+      .mobile-filter-dock {
+        position: sticky;
+        top: 0;
+        z-index: 70;
+        margin: 0 -12px 10px -12px;
+        padding: 8px 12px 8px 12px;
+        background: color-mix(in srgb, var(--bg) 92%, transparent);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid var(--border);
+      }
+      .filter-group { margin-bottom: 10px; text-align: left; }
+      .mobile-filter-dock .filter-group { margin-bottom: 8px; }
+      .mobile-filter-dock .filter-group:last-of-type { margin-bottom: 6px; }
+      .filter-label { font-size: 11px; margin-bottom: 5px; }
+      .filter-row {
+        justify-content: flex-start;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 6px;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+      .filter-row::-webkit-scrollbar, .view-tabs::-webkit-scrollbar { display: none; }
+      .fbtn {
+        font-size: 12px;
+        padding: 9px 13px;
+        min-height: 42px;
+        border-radius: 10px;
+        flex: 0 0 auto;
+      }
+      .view-tabs {
+        width: 100%;
+        overflow-x: auto;
+        justify-content: flex-start;
+        -webkit-overflow-scrolling: touch;
+        padding: 5px;
+        border-radius: 10px;
+      }
+      .view-tab {
+        font-size: 12px;
+        padding: 9px 12px;
+        min-height: 42px;
+        border-radius: 8px;
+        white-space: nowrap;
+        flex: 0 0 auto;
+      }
+      .filters { justify-content: flex-start; gap: 6px; }
+      select, input[type="number"] {
+        font-size: 13px;
+        padding: 8px 10px;
+        min-height: 40px;
+      }
+      th { font-size: 10px; padding: 7px 8px; }
+      td { font-size: 12px; padding: 7px 8px; }
+      td.left { font-size: 12.5px; }
+      .badge { font-size: 10px; padding: 2px 6px; }
+      .pagination { font-size: 12px; gap: 6px; flex-wrap: wrap; }
+      .pg-btn { font-size: 12px; padding: 8px 10px; min-height: 40px; border-radius: 8px; }
+      .footer { margin-top: 12px; padding: 10px; font-size: 11.5px; line-height: 1.6; }
+      .table-wrap { margin-bottom: 10px; }
+    }
+
+    @media (max-width: 420px) {
+      .kpi { flex: 1 1 100%; }
+      .kpi .value { font-size: 18px; }
+      h1 { font-size: 19px; }
+      .theme-toggle { top: 8px; right: 8px; width: 34px; height: 34px; }
+      .theme-toggle svg { width: 16px; height: 16px; }
+      .mobile-filter-dock { margin: 0 -12px 8px -12px; padding: 8px 12px 6px 12px; }
+      .fbtn, .view-tab { min-height: 40px; padding: 8px 11px; }
+      .sep { display: none; }
+      .quick-filter-bar {
+        display: block;
+        margin: 0 0 8px 0;
+        padding: 8px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg-card);
+      }
+      .quick-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.35px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin: 0 0 4px 2px;
+      }
+      .quick-chip-group { padding-bottom: 4px; margin-bottom: 6px; scrollbar-width: none; }
+      .quick-chip-group:last-child { margin-bottom: 0; }
+      .quick-chip {
+        min-height: 36px;
+        padding: 7px 10px;
+        border-radius: 9px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--text-muted);
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+        cursor: pointer;
+        flex: 0 0 auto;
+      }
+      .quick-chip.active {
+        color: var(--text-bright);
+        background: var(--btn-active-bg);
+        border-color: var(--border-active);
+      }
+    }
   </style>
   <script>
     (function(){var t=localStorage.getItem('theme');if(t==='light')document.documentElement.style.background='#f5f6f8';})();
@@ -171,7 +303,7 @@
         const LISTINGS = RAW.l.map(l => ({
           building: l[0], area: AREAS[l[1]]||'', price: l[2], sqft: l[3],
           furnished: l[4], grossYield: l[5], netYield: l[6], tier: l[7], conf: l[8],
-          scPsf: l[9]||12, city: l[10]||'Dubai', beds: l[11]||'1BR', url: l[12]||'',
+          scPsf: l[9]||12, city: l[10]||'Dubai', beds: l[11]||'Unknown', url: l[12]||'',
           psf: l[3] ? Math.round(l[2]/l[3]) : 0
         }));
         const SUMMARIES = (RAW.s||[]).map(s => ({
@@ -188,11 +320,19 @@
           tier: d[17], scPsf: d[18], firstSeen: d[19], lastDrop: d[20],
           city: d[21]||'Dubai', url: d[22]||'', psf: d[2] ? Math.round(d[7]/d[2]) : 0
         }));
+        const RENTAL_DROPS = (RAW.rd||[]).map(d => ({
+          building: d[0], area: AREAS[d[1]]||'', sqft: d[2], beds: d[3], furnished: d[4],
+          firstRent: d[5], prevRent: d[6], curRent: d[7],
+          dropPrev: d[8], dropPctPrev: d[9], totalDrop: d[10], totalDropPct: d[11],
+          dropCount: d[12], firstSeen: d[13], lastDrop: d[14],
+          city: d[15]||'Dubai', url: d[16]||'', tier: d[17]||'X',
+          rpsf: d[2] ? Math.round(d[7]/d[2]) : 0
+        }));
 
         const S = window.dashState = window.dashState || {
           tf:'All', areaF:'All', cityF:'All', bedsF:'All',
           view:'areas', af:'All', confF:'All',
-          minY:0, maxP:2000000, pg:0, dpg:0,
+          minY:0, maxP:2000000, pg:0, dpg:0, rdpg:0,
           sk:'netYield', sd:'desc', ask:'avgNY', asd:'desc',
           dsk:'totalDropPct', dsd:'desc', PP:50
         };
@@ -229,6 +369,33 @@
         if (S.tf !== 'All') fd = fd.filter(d => d.tier === S.tf);
         if (S.areaF !== 'All') fd = fd.filter(d => d.area === S.areaF);
         fd = fd.slice().sort((a,b) => cmp(a,b,S.dsk,S.dsd));
+        let frd = RENTAL_DROPS;
+        if (S.cityF !== 'All') frd = frd.filter(d => d.city === S.cityF);
+        if (S.bedsF !== 'All') frd = frd.filter(d => d.beds === S.bedsF);
+        if (S.tf !== 'All') frd = frd.filter(d => d.tier === S.tf);
+        if (S.areaF !== 'All') frd = frd.filter(d => d.area === S.areaF);
+        frd = frd.slice().sort((a,b) => cmp(a,b,S.dsk,S.dsd));
+
+        const bedCounts = LISTINGS.reduce((acc, l) => {
+          const key = l.beds || 'Unknown';
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+        }, {});
+        const bedSort = (a, b) => {
+          if (a === 'Studio') return -1;
+          if (b === 'Studio') return 1;
+          const an = parseInt(String(a).replace('BR',''), 10);
+          const bn = parseInt(String(b).replace('BR',''), 10);
+          if (!isNaN(an) && !isNaN(bn)) return an - bn;
+          return String(a).localeCompare(String(b));
+        };
+        const bedKeys = Object.keys(bedCounts).sort(bedSort);
+        const bedFilterOptions = [{k:'All', l:'All Types'}].concat(
+          bedKeys.map(k => ({k, l:`${k} (${(bedCounts[k] || 0).toLocaleString()})`}))
+        );
+        const quickBedOptions = [{k:'All', l:'All'}].concat(
+          bedKeys.slice(0, 4).map(k => ({k, l:k}))
+        );
 
         const st = {
           n: fl.length,
@@ -247,32 +414,48 @@
           bigPctDropUrl: fd.length ? fd.reduce((best,d)=>d.totalDropPct>best.totalDropPct?d:best,fd[0]).url : '',
           bigAedDropUrl: fd.length ? fd.reduce((best,d)=>d.totalDrop>best.totalDrop?d:best,fd[0]).url : '',
           dropCount: fd.length,
+          rentDropCount: frd.length,
+          rentAvgPctDrop: frd.length ? frd.reduce((s,d)=>s+d.totalDropPct,0)/frd.length : 0,
+          rentBigPctDrop: frd.length ? Math.max(...frd.map(d=>d.totalDropPct)) : 0,
+          rentBigAedDrop: frd.length ? Math.max(...frd.map(d=>d.totalDrop)) : 0,
+          rentBigPctDropUrl: frd.length ? frd.reduce((best,d)=>d.totalDropPct>best.totalDropPct?d:best,frd[0]).url : '',
+          rentBigAedDropUrl: frd.length ? frd.reduce((best,d)=>d.totalDrop>best.totalDrop?d:best,frd[0]).url : '',
           dubaiN: LISTINGS.filter(l=>l.city==='Dubai').length,
           adN: LISTINGS.filter(l=>l.city==='Abu Dhabi').length,
-          br1N: LISTINGS.filter(l=>l.beds==='1BR').length,
-          stN: LISTINGS.filter(l=>l.beds==='Studio').length,
         };
         const tp = Math.ceil(fl.length/S.PP)||1;
         const paged = fl.slice(S.pg*S.PP,(S.pg+1)*S.PP);
         const dtp = Math.ceil(fd.length/S.PP)||1;
         const dPaged = fd.slice(S.dpg*S.PP,(S.dpg+1)*S.PP);
+        const rdtp = Math.ceil(frd.length/S.PP)||1;
+        const rdPaged = frd.slice(S.rdpg*S.PP,(S.rdpg+1)*S.PP);
         const allAreas = ['All',...[...new Set(LISTINGS.map(l=>l.area))].filter(Boolean).sort()];
         function rerender() { render(); }
 
         let h = '<div style="max-width:1440px">';
         h += '<h1>UAE Real Estate Market Scanner</h1>';
-        h += '<div class="subtitle">'+LISTINGS.length.toLocaleString()+' sale listings ('+st.dubaiN.toLocaleString()+' Dubai, '+st.adN.toLocaleString()+' Abu Dhabi) matched against rental listings &middot; Property Finder</div>';
+        h += '<div class="subtitle">'+LISTINGS.length.toLocaleString()+' sale listings ('+st.dubaiN.toLocaleString()+' Dubai, '+st.adN.toLocaleString()+' Abu Dhabi) matched against rental listings across '+bedKeys.length+' unit types &middot; Property Finder</div>';
 
         var bigPctVal = st.bigPctDrop>0 ? st.bigPctDrop.toFixed(1)+'%' : '\u2014';
         var bigAedVal = st.bigAedDrop>0 ? fmt(st.bigAedDrop) : '\u2014';
         if(st.bigPctDropUrl && st.bigPctDrop>0) bigPctVal = '<a href="'+st.bigPctDropUrl+'" target="_blank">'+bigPctVal+'</a>';
         if(st.bigAedDropUrl && st.bigAedDrop>0) bigAedVal = '<a href="'+st.bigAedDropUrl+'" target="_blank">'+bigAedVal+'</a>';
+        var rentBigPctVal = st.rentBigPctDrop>0 ? st.rentBigPctDrop.toFixed(1)+'%' : '\u2014';
+        var rentBigAedVal = st.rentBigAedDrop>0 ? fmt(st.rentBigAedDrop) : '\u2014';
+        if(st.rentBigPctDropUrl && st.rentBigPctDrop>0) rentBigPctVal = '<a href="'+st.rentBigPctDropUrl+'" target="_blank">'+rentBigPctVal+'</a>';
+        if(st.rentBigAedDropUrl && st.rentBigAedDrop>0) rentBigAedVal = '<a href="'+st.rentBigAedDropUrl+'" target="_blank">'+rentBigAedVal+'</a>';
 
         h += '<div class="kpis">';
         h += '<div class="kpi red"><div class="label">Price Drops</div><div class="value">'+st.dropCount.toLocaleString()+'</div></div>';
         h += '<div class="kpi red"><div class="label">Avg % Drop</div><div class="value">'+(st.avgPctDrop>0?st.avgPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
         h += '<div class="kpi red"><div class="label">Biggest % Drop</div><div class="value">'+bigPctVal+'</div></div>';
         h += '<div class="kpi red"><div class="label">Biggest AED Drop</div><div class="value">'+bigAedVal+'</div></div>';
+        h += '</div>';
+        h += '<div class="kpis">';
+        h += '<div class="kpi red"><div class="label">Rental Drops</div><div class="value">'+st.rentDropCount.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Rental Avg % Drop</div><div class="value">'+(st.rentAvgPctDrop>0?st.rentAvgPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Rental Biggest % Drop</div><div class="value">'+rentBigPctVal+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Rental Biggest AED Drop</div><div class="value">'+rentBigAedVal+'</div></div>';
         h += '</div>';
         h += '<div class="kpis">';
         h += '<div class="kpi"><div class="label">Avg Price</div><div class="value">'+fmt(st.ap)+' <span class="sub">AED</span></div></div>';
@@ -295,6 +478,20 @@
           X:'Budget areas typically far from center with lower demand. Areas: '+(tierAreas.X.join(', ')||'none')+'.'
         };
 
+        h += '<div class="quick-filter-bar">';
+        h += '<div class="quick-label">Quick City</div><div class="quick-chip-group">';
+        [{k:'All',l:'All'},{k:'Dubai',l:'Dubai'},{k:'Abu Dhabi',l:'Abu Dhabi'}].forEach(t => {
+          h += '<button class="quick-chip'+(S.cityF===t.k?' active':'')+'" data-cityquick="'+t.k+'">'+t.l+'</button>';
+        });
+        h += '</div>';
+        h += '<div class="quick-label">Quick Unit Type</div><div class="quick-chip-group">';
+        quickBedOptions.forEach(t => {
+          h += '<button class="quick-chip'+(S.bedsF===t.k?' active':'')+'" data-bedsquick="'+t.k+'">'+t.l+'</button>';
+        });
+        h += '</div>';
+        h += '</div>';
+
+        h += '<div class="mobile-filter-dock">';
         h += '<div class="filter-group"><div class="filter-label">City</div><div class="filter-row">';
         [{k:'All',l:'All Cities'},{k:'Dubai',l:'Dubai ('+st.dubaiN.toLocaleString()+')'},{k:'Abu Dhabi',l:'Abu Dhabi ('+st.adN.toLocaleString()+')'}].forEach(t => {
           h += '<button class="fbtn'+(S.cityF===t.k?' active':'')+'" data-city="'+t.k+'">'+t.l+'</button>';
@@ -302,7 +499,7 @@
         h += '</div></div>';
 
         h += '<div class="filter-group"><div class="filter-label">Unit Type</div><div class="filter-row">';
-        [{k:'All',l:'All Types'},{k:'1BR',l:'1 Bedroom ('+st.br1N.toLocaleString()+')'},{k:'Studio',l:'Studio ('+st.stN.toLocaleString()+')'}].forEach(t => {
+        bedFilterOptions.forEach(t => {
           h += '<button class="fbtn'+(S.bedsF===t.k?' active':'')+'" data-beds="'+t.k+'">'+t.l+'</button>';
         });
         h += '</div></div>';
@@ -329,11 +526,14 @@
         h += '<div class="view-tabs">';
         h += '<button class="view-tab'+(S.view==='areas'?' active':'')+'" data-view="areas">Area Breakdown</button>';
         if(DROPS.length>0) h += '<button class="view-tab'+(S.view==='drops'?' active':'')+'" data-view="drops">Price Drops ('+fd.length+')</button>';
+        if(RENTAL_DROPS.length>0) h += '<button class="view-tab'+(S.view==='rentalDrops'?' active':'')+'" data-view="rentalDrops">Rental Drops ('+frd.length+')</button>';
         h += '<button class="view-tab'+(S.view==='listings'?' active':'')+'" data-view="listings">All Listings</button>';
+        h += '</div>';
         h += '</div>';
         h += '</div>';
         if(S.view==='listings') {
           h += '<div class="filters" style="justify-content:center">';
+          h += '<select id="bedsFilterInline">'+bedFilterOptions.map(b=>'<option value="'+b.k+'"'+(S.bedsF===b.k?' selected':'')+'>'+b.l+'</option>').join('')+'</select>';
           h += '<select id="areaFilter">'+allAreas.map(a=>'<option value="'+a+'"'+(S.af===a?' selected':'')+'>'+(a==='All'?'All Areas':a)+'</option>').join('')+'</select>';
           h += '<select id="confFilter"><option value="All"'+(S.confF==='All'?' selected':'')+'>All Matches</option><option value="B"'+(S.confF==='B'?' selected':'')+'>Building Only</option><option value="A"'+(S.confF==='A'?' selected':'')+'>Area Only</option></select>';
           h += '<label style="font-size:13px;color:var(--text-muted)">Min Yield <input type="number" id="minY" value="'+S.minY+'" min="0" max="12" step="0.5" style="width:52px"/>%</label>';
@@ -401,6 +601,34 @@
           }
         }
 
+        if(S.view==='rentalDrops') {
+          if(frd.length===0) {
+            h += '<div style="padding:28px;text-align:center;color:var(--text-muted);font-size:14px">No rental drops detected yet. Run process_data.py again after your next rental data download.</div>';
+          } else {
+            h += '<div class="table-wrap drops-table"><table><thead><tr>';
+            h += dth('Building / Area','building',true)+dth('Original Rent','firstRent')+dth('Previous Rent','prevRent')+dth('Current Rent','curRent');
+            h += dth('Last Drop','dropPrev')+dth('Last %','dropPctPrev')+dth('Total Drop','totalDrop')+dth('Total %','totalDropPct');
+            h += dth('Drops','dropCount')+dth('Rent/sf','rpsf')+dth('Tier','tier');
+            h += '</tr></thead><tbody>';
+            rdPaged.forEach((d,i) => {
+              const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)';
+              const bName = d.url ? '<a href="'+d.url+'" target="_blank" class="bld-link">'+d.building+'</a>' : d.building;
+              h += '<tr style="background:'+bg+'">';
+              h += '<td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td>';
+              h += '<td style="color:var(--text-dim)">'+fmt(d.firstRent)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevRent)+'</td>';
+              h += '<td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curRent)+'</td>';
+              h += '<td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td>';
+              h += '<td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td>';
+              h += '<td>'+d.dropCount+'</td><td style="color:var(--text-dim)">'+fmt(d.rpsf)+'</td>';
+              h += '<td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td>';
+              h += '</tr>';
+            });
+            h += '</tbody></table></div>';
+            h += '<div class="pagination"><span style="color:var(--text-muted)">Showing '+(S.rdpg*S.PP+1)+'\u2013'+Math.min((S.rdpg+1)*S.PP,frd.length)+' of '+frd.length.toLocaleString()+' drops</span>';
+            h += '<div style="display:flex;gap:4px"><button class="pg-btn" id="prevRDPg"'+(S.rdpg===0?' disabled':'')+'>&larr; Prev</button><span style="padding:4px 10px;color:var(--text-muted)">'+(S.rdpg+1)+'/'+rdtp+'</span><button class="pg-btn" id="nextRDPg"'+(S.rdpg>=rdtp-1?' disabled':'')+ '>Next &rarr;</button></div></div>';
+          }
+        }
+
         if(S.view==='listings') {
           h += '<div class="table-wrap"><table><thead><tr>';
           h += '<th style="width:32px;text-align:center;cursor:default">#</th>'+lth('Building / Area','building',true)+lth('City','city')+lth('Type','beds')+lth('Price','price')+lth('Sqft','sqft')+lth('AED/sf','psf')+lth('Gross Yield','grossYield')+lth('Net Yield','netYield')+lth('Tier','tier');
@@ -426,7 +654,7 @@
           h += '<div style="display:flex;gap:4px"><button class="pg-btn" id="prevPg"'+(S.pg===0?' disabled':'')+'>&larr; Prev</button><span style="padding:4px 10px;color:var(--text-muted)">'+(S.pg+1)+'/'+tp+'</span><button class="pg-btn" id="nextPg"'+(S.pg>=tp-1?' disabled':'')+ '>Next &rarr;</button></div></div>';
         }
 
-        h += '<div class="footer"><strong style="color:var(--text-dim)">Data:</strong> '+LISTINGS.length.toLocaleString()+' sale listings (Dubai + Abu Dhabi, studios + 1BR) matched to rental listings. Yields use building-level median rent/sqft where comps exist, area-level otherwise. Net yields deduct area-specific service charges. Click any building name to view the listing on Property Finder.</div>';
+        h += '<div class="footer"><strong style="color:var(--text-dim)">Data:</strong> '+LISTINGS.length.toLocaleString()+' sale listings (Dubai + Abu Dhabi, multi-unit types) matched to rental listings. The pipeline tracks sale price drops and rental drop trends over time by unique listing ID. Yields use building-level median rent/sqft where comps exist, area-level otherwise. Net yields deduct area-specific service charges. Click any building name to view the listing on Property Finder.</div>';
         h += '</div>';
         document.getElementById('root').innerHTML = h;
 
@@ -437,13 +665,16 @@
         document.querySelectorAll('.info-i.tier-info').forEach(el=>{const k=el.dataset.tierkey;el.addEventListener('mouseenter',e=>{e.stopPropagation();showPopup(el,tierInfo[k]);});el.addEventListener('mouseleave',removePopup);el.addEventListener('click',e=>e.stopPropagation());});
         document.querySelectorAll('[data-asort]').forEach(th=>{th.onclick=()=>{const k=th.dataset.asort;if(S.ask===k)S.asd=S.asd==='desc'?'asc':'desc';else{S.ask=k;S.asd='desc';}rerender();};});
         document.querySelectorAll('[data-lsort]').forEach(th=>{th.onclick=()=>{const k=th.dataset.lsort;if(S.sk===k)S.sd=S.sd==='desc'?'asc':'desc';else{S.sk=k;S.sd='desc';}S.pg=0;rerender();};});
-        document.querySelectorAll('[data-dsort]').forEach(th=>{th.onclick=()=>{const k=th.dataset.dsort;if(S.dsk===k)S.dsd=S.dsd==='desc'?'asc':'desc';else{S.dsk=k;S.dsd='desc';}S.dpg=0;rerender();};});
-        document.querySelectorAll('[data-city]').forEach(btn=>{btn.onclick=()=>{S.cityF=btn.dataset.city;S.areaF='All';S.pg=0;S.dpg=0;rerender();};});
-        document.querySelectorAll('[data-beds]').forEach(btn=>{btn.onclick=()=>{S.bedsF=btn.dataset.beds;S.pg=0;S.dpg=0;rerender();};});
-        document.querySelectorAll('[data-tier]').forEach(btn=>{btn.onclick=e=>{if(e.target.classList.contains('info-i'))return;S.tf=btn.dataset.tier;S.pg=0;S.dpg=0;rerender();};});
-        document.querySelectorAll('[data-areaf]').forEach(btn=>{btn.onclick=()=>{S.areaF=btn.dataset.areaf;S.pg=0;S.dpg=0;rerender();};});
-        document.querySelectorAll('.view-tab').forEach(btn=>{btn.onclick=()=>{S.view=btn.dataset.view;S.pg=0;S.dpg=0;rerender();};});
+        document.querySelectorAll('[data-dsort]').forEach(th=>{th.onclick=()=>{const k=th.dataset.dsort;if(S.dsk===k)S.dsd=S.dsd==='desc'?'asc':'desc';else{S.dsk=k;S.dsd='desc';}S.dpg=0;S.rdpg=0;rerender();};});
+        document.querySelectorAll('[data-city]').forEach(btn=>{btn.onclick=()=>{S.cityF=btn.dataset.city;S.areaF='All';S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
+        document.querySelectorAll('[data-cityquick]').forEach(btn=>{btn.onclick=()=>{S.cityF=btn.dataset.cityquick;S.areaF='All';S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
+        document.querySelectorAll('[data-beds]').forEach(btn=>{btn.onclick=()=>{S.bedsF=btn.dataset.beds;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
+        document.querySelectorAll('[data-bedsquick]').forEach(btn=>{btn.onclick=()=>{S.bedsF=btn.dataset.bedsquick;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
+        document.querySelectorAll('[data-tier]').forEach(btn=>{btn.onclick=e=>{if(e.target.classList.contains('info-i'))return;S.tf=btn.dataset.tier;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
+        document.querySelectorAll('[data-areaf]').forEach(btn=>{btn.onclick=()=>{S.areaF=btn.dataset.areaf;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
+        document.querySelectorAll('.view-tab').forEach(btn=>{btn.onclick=()=>{S.view=btn.dataset.view;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
         document.querySelectorAll('.area-link').forEach(el=>{el.onclick=()=>{S.af=el.dataset.area;S.areaF='All';S.confF='All';S.minY=0;S.maxP=3000000;S.view='listings';S.pg=0;rerender();};});
+        const bF=document.getElementById('bedsFilterInline');if(bF)bF.onchange=()=>{S.bedsF=bF.value;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};
         const aF=document.getElementById('areaFilter');if(aF)aF.onchange=()=>{S.af=aF.value;S.pg=0;rerender();};
         const cF=document.getElementById('confFilter');if(cF)cF.onchange=()=>{S.confF=cF.value;S.pg=0;rerender();};
         const mY=document.getElementById('minY');if(mY)mY.onchange=()=>{S.minY=parseFloat(mY.value)||0;S.pg=0;rerender();};
@@ -452,6 +683,8 @@
         const nP=document.getElementById('nextPg');if(nP)nP.onclick=()=>{S.pg=Math.min(tp-1,S.pg+1);rerender();};
         const dPP=document.getElementById('prevDPg');if(dPP)dPP.onclick=()=>{S.dpg=Math.max(0,S.dpg-1);rerender();};
         const dNP=document.getElementById('nextDPg');if(dNP)dNP.onclick=()=>{S.dpg=Math.min(dtp-1,S.dpg+1);rerender();};
+        const rPP=document.getElementById('prevRDPg');if(rPP)rPP.onclick=()=>{S.rdpg=Math.max(0,S.rdpg-1);rerender();};
+        const rNP=document.getElementById('nextRDPg');if(rNP)rNP.onclick=()=>{S.rdpg=Math.min(rdtp-1,S.rdpg+1);rerender();};
       }
       window.render = render;
       fetch(DATA_URL).then(r=>r.ok?r.json():Promise.reject()).then(data=>{window.RAW=data;render();}).catch(()=>{window.RAW=null;render();});

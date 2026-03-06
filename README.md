@@ -21,9 +21,10 @@ Track Dubai and Abu Dhabi residential listing yields (studios and 1-bed) with **
 
 1. **Get data (if you don’t have it yet)**  
    - On [Property Finder](https://www.propertyfinder.ae), run a **buy** search (apartments, Dubai, completed, studios + 1 bed).  
-   - Open DevTools → Console, paste the contents of `scripts/sales_scraping_script.js`, run.  
-   - Do the same for **rent** with `scripts/rental_scraping_script.js`.  
-   - Save the downloaded JSON as `data/sales.json` and `data/rentals.json` (or copy your existing `sales data.txt` / `rentals data.txt` into `data/` and rename to `.json`).
+   - Open DevTools → Console, paste the contents of `scripts/unified_scraping_script.js`, run.  
+   - Use the same script for both **buy** and **rent** searches (it auto-detects listing type).  
+   - Scripts now auto-name files as: `City - unit type - sales data.json` or `City - unit type - rental data.json` (for example: `Dubai - 1 bedroom - sales data.json`).
+   - Move each downloaded JSON file into `data/`. Manual renaming is no longer required.
 
 2. **Process data**  
    ```bash
@@ -58,9 +59,19 @@ Track Dubai and Abu Dhabi residential listing yields (studios and 1-bed) with **
 
 1. Open Property Finder, set your filters (e.g. Buy → Apartments → Dubai → Completed → Studio / 1 bed).
 2. Open the page that shows the list of results.
-3. F12 → Console. Paste the full contents of `scripts/sales_scraping_script.js` (or rental script) and press Enter.
-4. Wait for the run to finish (script logs progress). A JSON file will download.
-5. Rename/move it to `data/sales.json` or `data/rentals.json` and run `python process_data.py` again.
+3. F12 → Console. Paste the full contents of `scripts/unified_scraping_script.js` and press Enter.
+4. Wait for the run to finish (script logs progress). A JSON file will download with auto-detected city, unit type, and listing type in the filename.
+5. Move it to `data/` and run `python process_data.py` again.
+
+## File naming and tracking
+
+- Scrapers now include full listing URLs in each record (`url`) plus stable listing IDs (`id`).
+- Each listing is tagged with `city` and `unit_type`, so mixed searches (both cities and multiple unit types) can be segregated later in processing.
+- `process_data.py` auto-discovers all listing JSON files in `data/` and classifies them as sales or rentals.
+- No fixed filenames are required; legacy files like `sales.json` / `rentals.json` are still supported.
+- Sales listing prices are snapshotted in SQLite and compared run-to-run to track cumulative price drops.
+- Rental listing annualized rents are also snapshotted and compared run-to-run to track cumulative rent drops.
+- Legacy scripts (`scripts/sales_scraping_script.js`, `scripts/rental_scraping_script.js`) still work, but `scripts/unified_scraping_script.js` is now the recommended default.
 
 To avoid bot restrictions, run the script only after you’ve opened the site and created the search yourself.
 
