@@ -492,6 +492,7 @@
         h += '<div class="kpi accent"><div class="label">Avg Net Yield</div><div class="value">'+st.any_.toFixed(1)+'%</div></div>';
         h += '<div class="kpi"><div class="label">Max Gross Yield</div><div class="value">'+st.mgy.toFixed(1)+'%</div></div>';
         h += '</div>';
+        h += '<div style="height:10px"></div>';
 
         const tierAreas = {P:[],E:[],M:[],X:[]};
         SUMMARIES.forEach(s => { if(tierAreas[s.tier]) tierAreas[s.tier].push(s.name); });
@@ -504,10 +505,10 @@
         };
 
         h += '<div class="dropdown-filters">';
-        h += '<select id="citySel">'+[{k:'All',l:'City: All'},{k:'Dubai',l:'City: Dubai'},{k:'Abu Dhabi',l:'City: Abu Dhabi'}].map(o=>'<option value="'+o.k+'"'+(S.cityF===o.k?' selected':'')+'>'+o.l+'</option>').join('')+'</select>';
-        h += '<select id="bedsSel">'+bedFilterOptions.map(o=>'<option value="'+o.k+'"'+(S.bedsF===o.k?' selected':'')+'>Unit Type: '+o.l+'</option>').join('')+'</select>';
-        h += '<select id="areaSel">'+allAreas.map(o=>'<option value="'+o+'"'+(S.areaF===o?' selected':'')+'>Area: '+(o==='All'?'All':o)+'</option>').join('')+'</select>';
-        h += '<select id="tierSel">'+qualityOptions.map(o=>'<option value="'+o.k+'"'+(S.tf===o.k?' selected':'')+'>Quality: '+o.l+'</option>').join('')+'</select>';
+        h += '<select id="citySel">'+[{k:'All',l:'All Cities'},{k:'Dubai',l:'Dubai'},{k:'Abu Dhabi',l:'Abu Dhabi'}].map(o=>'<option value="'+o.k+'"'+(S.cityF===o.k?' selected':'')+'>'+o.l+'</option>').join('')+'</select>';
+        h += '<select id="bedsSel">'+bedFilterOptions.map(o=>'<option value="'+o.k+'"'+(S.bedsF===o.k?' selected':'')+'>'+(o.k==='All'?'All Unit Types':o.l)+'</option>').join('')+'</select>';
+        h += '<select id="areaSel">'+allAreas.map(o=>'<option value="'+o+'"'+(S.areaF===o?' selected':'')+'>'+(o==='All'?'All Areas':o)+'</option>').join('')+'</select>';
+        h += '<select id="tierSel">'+qualityOptions.map(o=>'<option value="'+o.k+'"'+(S.tf===o.k?' selected':'')+'>'+(o.k==='All'?'All Qualities':o.l)+'</option>').join('')+'</select>';
         h += '</div>';
 
         const activeAreas = (S.cityF==='Abu Dhabi' ? AD_AREAS : S.cityF==='Dubai' ? DUBAI_AREAS : [...DUBAI_AREAS,...AD_AREAS]).filter(a=>allAreas.includes(a));
@@ -523,7 +524,7 @@
         const dropPage = S.dropView === 'rental' ? S.rdpg : S.dpg;
         const safeDropPage = Math.min(dropPage, dropTotalPages - 1);
         const dropPaged = activeDrops.slice(safeDropPage * S.PP, (safeDropPage + 1) * S.PP);
-        h += '<div class="drop-highlight-head"><div class="filter-label" style="margin:0">Market Drops (Highlighted)</div><div class="drop-tabs">';
+        h += '<div class="drop-highlight-head"><div class="filter-label" style="margin:0">Market Drops</div><div class="drop-tabs">';
         h += '<button class="drop-tab'+(S.dropView==='sales'?' active':'')+'" data-dropview="sales">Sales Drops ('+fd.length+')</button>';
         h += '<button class="drop-tab'+(S.dropView==='rental'?' active':'')+'" data-dropview="rental">Rental Drops ('+frd.length+')</button>';
         h += '</div></div>';
