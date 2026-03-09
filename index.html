@@ -102,6 +102,14 @@
     .quick-filter-bar { display: none; }
     .quick-chip-group { display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .quick-chip-group::-webkit-scrollbar { display: none; }
+    .dropdown-filters { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 8px; margin-bottom: 10px; }
+    .areas-inline { margin-bottom: 12px; }
+    .areas-inline-row { display: flex; gap: 7px; overflow-x: auto; white-space: nowrap; padding-bottom: 4px; }
+    .areas-inline-row::-webkit-scrollbar { display: none; }
+    .drop-highlight-head { display:flex; justify-content:space-between; align-items:center; gap:8px; margin: 8px 0; }
+    .drop-tabs { display:flex; gap:6px; }
+    .drop-tab { padding:6px 12px; border:1px solid var(--border); border-radius:8px; background:transparent; color:var(--text-muted); cursor:pointer; font-size:12px; font-weight:600; }
+    .drop-tab.active { background: var(--btn-active-bg); color: var(--text-bright); border-color: var(--border-active); }
 
     @media (max-width: 1024px) {
       body { padding: 16px; }
@@ -182,6 +190,7 @@
       .pg-btn { font-size: 12px; padding: 8px 10px; min-height: 40px; border-radius: 8px; }
       .footer { margin-top: 12px; padding: 10px; font-size: 11.5px; line-height: 1.6; }
       .table-wrap { margin-bottom: 10px; }
+      .dropdown-filters { grid-template-columns: 1fr 1fr; }
     }
 
     @media (max-width: 420px) {
@@ -337,18 +346,20 @@
 
         const S = window.dashState = window.dashState || {
           tf:'All', areaF:'All', cityF:'All', bedsF:'All',
-          view:'areas', af:'All', confF:'All',
+          view:'listings', confF:'All',
           minY:0, maxP:2000000, pg:0, dpg:0, rdpg:0,
           sk:'netYield', sd:'desc', ask:'avgNY', asd:'desc',
-          dsk:'totalDropPct', dsd:'desc', PP:50
+          dsk:'totalDropPct', dsd:'desc', PP:50,
+          dropView:'sales', areaExpanded:false
         };
+        if (!['areas','listings'].includes(S.view)) S.view = 'listings';
+        if (!['sales','rental'].includes(S.dropView)) S.dropView = 'sales';
 
         let fl = LISTINGS;
         if (S.cityF !== 'All') fl = fl.filter(l => l.city === S.cityF);
         if (S.bedsF !== 'All') fl = fl.filter(l => l.beds === S.bedsF);
         if (S.tf !== 'All') fl = fl.filter(l => l.tier === S.tf);
         if (S.areaF !== 'All') fl = fl.filter(l => l.area === S.areaF);
-        if (S.af !== 'All') fl = fl.filter(l => l.area === S.af);
         if (S.minY > 0) fl = fl.filter(l => l.grossYield >= S.minY);
         if (S.maxP < 1e9) fl = fl.filter(l => l.price <= S.maxP);
         if (S.confF !== 'All') fl = fl.filter(l => l.conf === S.confF);
@@ -402,6 +413,13 @@
         const quickBedOptions = [{k:'All', l:'All'}].concat(
           bedKeys.slice(0, 4).map(k => ({k, l:k}))
         );
+        const qualityOptions = [
+          {k:'All', l:'All Qualities'},
+          {k:'P', l:'Prime'},
+          {k:'E', l:'Established'},
+          {k:'M', l:'Mid-Tier'},
+          {k:'X', l:'Peripheral'}
+        ];
 
         const st = {
           n: fl.length,
@@ -485,63 +503,61 @@
           X:'Budget areas typically far from center with lower demand. Areas: '+(tierAreas.X.join(', ')||'none')+'.'
         };
 
-        h += '<div class="quick-filter-bar">';
-        h += '<div class="quick-label">Quick City</div><div class="quick-chip-group">';
-        [{k:'All',l:'All'},{k:'Dubai',l:'Dubai'},{k:'Abu Dhabi',l:'Abu Dhabi'}].forEach(t => {
-          h += '<button class="quick-chip'+(S.cityF===t.k?' active':'')+'" data-cityquick="'+t.k+'">'+t.l+'</button>';
-        });
-        h += '</div>';
-        h += '<div class="quick-label">Quick Unit Type</div><div class="quick-chip-group">';
-        quickBedOptions.forEach(t => {
-          h += '<button class="quick-chip'+(S.bedsF===t.k?' active':'')+'" data-bedsquick="'+t.k+'">'+t.l+'</button>';
-        });
-        h += '</div>';
+        h += '<div class="dropdown-filters">';
+        h += '<select id="citySel">'+[{k:'All',l:'City: All'},{k:'Dubai',l:'City: Dubai'},{k:'Abu Dhabi',l:'City: Abu Dhabi'}].map(o=>'<option value="'+o.k+'"'+(S.cityF===o.k?' selected':'')+'>'+o.l+'</option>').join('')+'</select>';
+        h += '<select id="bedsSel">'+bedFilterOptions.map(o=>'<option value="'+o.k+'"'+(S.bedsF===o.k?' selected':'')+'>Unit Type: '+o.l+'</option>').join('')+'</select>';
+        h += '<select id="areaSel">'+allAreas.map(o=>'<option value="'+o+'"'+(S.areaF===o?' selected':'')+'>Area: '+(o==='All'?'All':o)+'</option>').join('')+'</select>';
+        h += '<select id="tierSel">'+qualityOptions.map(o=>'<option value="'+o.k+'"'+(S.tf===o.k?' selected':'')+'>Quality: '+o.l+'</option>').join('')+'</select>';
         h += '</div>';
 
-        h += '<div class="mobile-filter-dock">';
-        h += '<div class="filter-group"><div class="filter-label">City</div><div class="filter-row">';
-        [{k:'All',l:'All Cities'},{k:'Dubai',l:'Dubai ('+st.dubaiN.toLocaleString()+')'},{k:'Abu Dhabi',l:'Abu Dhabi ('+st.adN.toLocaleString()+')'}].forEach(t => {
-          h += '<button class="fbtn'+(S.cityF===t.k?' active':'')+'" data-city="'+t.k+'">'+t.l+'</button>';
-        });
+        const activeAreas = (S.cityF==='Abu Dhabi' ? AD_AREAS : S.cityF==='Dubai' ? DUBAI_AREAS : [...DUBAI_AREAS,...AD_AREAS]).filter(a=>allAreas.includes(a));
+        const shownAreas = S.areaExpanded ? activeAreas : activeAreas.slice(0, 10);
+        h += '<div class="areas-inline"><div class="areas-inline-row">';
+        h += '<button class="fbtn'+(S.areaF==='All'?' active':'')+'" data-areachip="All">All Areas</button>';
+        shownAreas.forEach(a=>{ h += '<button class="fbtn'+(S.areaF===a?' active':'')+'" data-areachip="'+a+'">'+a+'</button>'; });
+        if(activeAreas.length>10) h += '<button class="fbtn" id="toggleAreasBtn">'+(S.areaExpanded?'Show Less':'Show More')+'</button>';
         h += '</div></div>';
 
-        h += '<div class="filter-group"><div class="filter-label">Unit Type</div><div class="filter-row">';
-        bedFilterOptions.forEach(t => {
-          h += '<button class="fbtn'+(S.bedsF===t.k?' active':'')+'" data-beds="'+t.k+'">'+t.l+'</button>';
-        });
+        const activeDrops = S.dropView === 'rental' ? frd : fd;
+        const dropTotalPages = Math.ceil(activeDrops.length / S.PP) || 1;
+        const dropPage = S.dropView === 'rental' ? S.rdpg : S.dpg;
+        const safeDropPage = Math.min(dropPage, dropTotalPages - 1);
+        const dropPaged = activeDrops.slice(safeDropPage * S.PP, (safeDropPage + 1) * S.PP);
+        h += '<div class="drop-highlight-head"><div class="filter-label" style="margin:0">Market Drops (Highlighted)</div><div class="drop-tabs">';
+        h += '<button class="drop-tab'+(S.dropView==='sales'?' active':'')+'" data-dropview="sales">Sales Drops ('+fd.length+')</button>';
+        h += '<button class="drop-tab'+(S.dropView==='rental'?' active':'')+'" data-dropview="rental">Rental Drops ('+frd.length+')</button>';
         h += '</div></div>';
 
-        h += '<div class="filter-group"><div class="filter-label">Quality Filter</div><div class="filter-row">';
-        [{k:'All',l:'All ('+LISTINGS.length.toLocaleString()+')'},{k:'P',l:'Prime ('+st.P+')'},{k:'E',l:'Established ('+st.E+')'},{k:'M',l:'Mid-Tier ('+st.M+')'},{k:'X',l:'Peripheral ('+st.X+')'}].forEach(t => {
-          const act = S.tf===t.k; let sty='';
-          if(act && t.k!=='All') sty='background:'+T[t.k].bg+';border-color:'+T[t.k].bdr+';color:'+T[t.k].color;
-          const ib = t.k!=='All'?' <span class="info-i tier-info" data-tierkey="'+t.k+'">i</span>':'';
-          h += '<button class="fbtn'+(act?' active':'')+'" data-tier="'+t.k+'"'+(sty?' style="'+sty+'"':'')+'>'+t.l+ib+'</button>';
-        });
-        h += '</div></div>';
-
-        const activeAreaBtns = S.cityF==='Abu Dhabi' ? AD_AREAS : S.cityF==='Dubai' ? DUBAI_AREAS : [...DUBAI_AREAS,...AD_AREAS];
-        h += '<div class="filter-group"><div class="filter-label">Areas Filter</div><div class="filter-row">';
-        const aFB = [{k:'All',l:'All Areas'}];
-        activeAreaBtns.forEach(a => { if(allAreas.includes(a)) aFB.push({k:a,l:a}); });
-        aFB.forEach(t => {
-          h += '<button class="fbtn'+(S.areaF===t.k?' active':'')+'" data-areaf="'+t.k+'">'+t.l+'</button>';
-        });
-        h += '</div></div>';
+        if (activeDrops.length===0) {
+          h += '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:14px">No drops found for current filters.</div>';
+        } else if (S.dropView==='sales') {
+          h += '<div class="table-wrap drops-table"><table><thead><tr>';
+          h += dth('Building / Area','building',true)+dth('Original','firstPrice')+dth('Previous','prevPrice')+dth('Current','curPrice');
+          h += dth('Last Drop','dropPrev')+dth('Last %','dropPctPrev')+dth('Total Drop','totalDrop')+dth('Total %','totalDropPct');
+          h += dth('Drops','dropCount')+dth('Old GY','oldGY')+dth('New GY','newGY')+dth('Old NY','oldNY')+dth('New NY','newNY')+dth('Tier','tier');
+          h += '</tr></thead><tbody>';
+          dropPaged.forEach((d,i)=>{ const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)'; const bName=d.url?'<a href="'+d.url+'" target="_blank" class="bld-link">'+d.building+'</a>':d.building; h += '<tr style="background:'+bg+'"><td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td><td style="color:var(--text-dim)">'+fmt(d.firstPrice)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevPrice)+'</td><td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curPrice)+'</td><td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td><td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td><td>'+d.dropCount+'</td><td style="color:var(--text-dim)">'+pct(d.oldGY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newGY)+'</td><td style="color:var(--text-dim)">'+pct(d.oldNY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newNY)+'</td><td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td></tr>'; });
+          h += '</tbody></table></div>';
+        } else {
+          h += '<div class="table-wrap drops-table"><table><thead><tr>';
+          h += dth('Building / Area','building',true)+dth('Original Rent','firstRent')+dth('Previous Rent','prevRent')+dth('Current Rent','curRent');
+          h += dth('Last Drop','dropPrev')+dth('Last %','dropPctPrev')+dth('Total Drop','totalDrop')+dth('Total %','totalDropPct');
+          h += dth('Drops','dropCount')+dth('Rent/sf','rpsf')+dth('Tier','tier');
+          h += '</tr></thead><tbody>';
+          dropPaged.forEach((d,i)=>{ const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)'; const bName=d.url?'<a href="'+d.url+'" target="_blank" class="bld-link">'+d.building+'</a>':d.building; h += '<tr style="background:'+bg+'"><td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td><td style="color:var(--text-dim)">'+fmt(d.firstRent)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevRent)+'</td><td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curRent)+'</td><td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td><td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td><td>'+d.dropCount+'</td><td style="color:var(--text-dim)">'+fmt(d.rpsf)+'</td><td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td></tr>'; });
+          h += '</tbody></table></div>';
+        }
+        h += '<div class="pagination"><span style="color:var(--text-muted)">Showing '+(safeDropPage*S.PP+1)+'\u2013'+Math.min((safeDropPage+1)*S.PP,activeDrops.length)+' of '+activeDrops.length.toLocaleString()+' drops</span>';
+        h += '<div style="display:flex;gap:4px"><button class="pg-btn" id="prevDropPg"'+(safeDropPage===0?' disabled':'')+'>&larr; Prev</button><span style="padding:4px 10px;color:var(--text-muted)">'+(safeDropPage+1)+'/'+dropTotalPages+'</span><button class="pg-btn" id="nextDropPg"'+(safeDropPage>=dropTotalPages-1?' disabled':'')+ '>Next &rarr;</button></div></div>';
 
         h += '<div style="display:flex;justify-content:center;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">';
         h += '<div class="view-tabs">';
         h += '<button class="view-tab'+(S.view==='areas'?' active':'')+'" data-view="areas">Area Breakdown</button>';
-        if(DROPS.length>0) h += '<button class="view-tab'+(S.view==='drops'?' active':'')+'" data-view="drops">Price Drops ('+fd.length+')</button>';
-        if(RENTAL_DROPS.length>0) h += '<button class="view-tab'+(S.view==='rentalDrops'?' active':'')+'" data-view="rentalDrops">Rental Drops ('+frd.length+')</button>';
         h += '<button class="view-tab'+(S.view==='listings'?' active':'')+'" data-view="listings">All Listings</button>';
-        h += '</div>';
         h += '</div>';
         h += '</div>';
         if(S.view==='listings') {
           h += '<div class="filters" style="justify-content:center">';
-          h += '<select id="bedsFilterInline">'+bedFilterOptions.map(b=>'<option value="'+b.k+'"'+(S.bedsF===b.k?' selected':'')+'>'+b.l+'</option>').join('')+'</select>';
-          h += '<select id="areaFilter">'+allAreas.map(a=>'<option value="'+a+'"'+(S.af===a?' selected':'')+'>'+(a==='All'?'All Areas':a)+'</option>').join('')+'</select>';
           h += '<select id="confFilter"><option value="All"'+(S.confF==='All'?' selected':'')+'>All Matches</option><option value="B"'+(S.confF==='B'?' selected':'')+'>Building Only</option><option value="A"'+(S.confF==='A'?' selected':'')+'>Area Only</option></select>';
           h += '<label style="font-size:13px;color:var(--text-muted)">Min Yield <input type="number" id="minY" value="'+S.minY+'" min="0" max="12" step="0.5" style="width:52px"/>%</label>';
           h += '<label style="font-size:13px;color:var(--text-muted)">Max <select id="maxP">'+[500000,800000,1000000,1200000,1500000,1800000,2000000,3000000].map(v=>'<option value="'+v+'"'+(S.maxP===v?' selected':'')+'>AED '+fmt(v)+'</option>').join('')+'</select></label>';
@@ -673,25 +689,22 @@
         document.querySelectorAll('[data-asort]').forEach(th=>{th.onclick=()=>{const k=th.dataset.asort;if(S.ask===k)S.asd=S.asd==='desc'?'asc':'desc';else{S.ask=k;S.asd='desc';}rerender();};});
         document.querySelectorAll('[data-lsort]').forEach(th=>{th.onclick=()=>{const k=th.dataset.lsort;if(S.sk===k)S.sd=S.sd==='desc'?'asc':'desc';else{S.sk=k;S.sd='desc';}S.pg=0;rerender();};});
         document.querySelectorAll('[data-dsort]').forEach(th=>{th.onclick=()=>{const k=th.dataset.dsort;if(S.dsk===k)S.dsd=S.dsd==='desc'?'asc':'desc';else{S.dsk=k;S.dsd='desc';}S.dpg=0;S.rdpg=0;rerender();};});
-        document.querySelectorAll('[data-city]').forEach(btn=>{btn.onclick=()=>{S.cityF=btn.dataset.city;S.areaF='All';S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
-        document.querySelectorAll('[data-cityquick]').forEach(btn=>{btn.onclick=()=>{S.cityF=btn.dataset.cityquick;S.areaF='All';S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
-        document.querySelectorAll('[data-beds]').forEach(btn=>{btn.onclick=()=>{S.bedsF=btn.dataset.beds;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
-        document.querySelectorAll('[data-bedsquick]').forEach(btn=>{btn.onclick=()=>{S.bedsF=btn.dataset.bedsquick;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
-        document.querySelectorAll('[data-tier]').forEach(btn=>{btn.onclick=e=>{if(e.target.classList.contains('info-i'))return;S.tf=btn.dataset.tier;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
-        document.querySelectorAll('[data-areaf]').forEach(btn=>{btn.onclick=()=>{S.areaF=btn.dataset.areaf;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
+        const citySel=document.getElementById('citySel');if(citySel)citySel.onchange=()=>{S.cityF=citySel.value;S.areaF='All';S.pg=0;S.dpg=0;S.rdpg=0;rerender();};
+        const bedsSel=document.getElementById('bedsSel');if(bedsSel)bedsSel.onchange=()=>{S.bedsF=bedsSel.value;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};
+        const areaSel=document.getElementById('areaSel');if(areaSel)areaSel.onchange=()=>{S.areaF=areaSel.value;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};
+        const tierSel=document.getElementById('tierSel');if(tierSel)tierSel.onchange=()=>{S.tf=tierSel.value;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};
+        document.querySelectorAll('[data-areachip]').forEach(btn=>{btn.onclick=()=>{S.areaF=btn.dataset.areachip;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
+        const toggleAreasBtn=document.getElementById('toggleAreasBtn');if(toggleAreasBtn)toggleAreasBtn.onclick=()=>{S.areaExpanded=!S.areaExpanded;rerender();};
+        document.querySelectorAll('[data-dropview]').forEach(btn=>{btn.onclick=()=>{S.dropView=btn.dataset.dropview;S.dpg=0;S.rdpg=0;rerender();};});
         document.querySelectorAll('.view-tab').forEach(btn=>{btn.onclick=()=>{S.view=btn.dataset.view;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
-        document.querySelectorAll('.area-link').forEach(el=>{el.onclick=()=>{S.af=el.dataset.area;S.areaF='All';S.confF='All';S.minY=0;S.maxP=3000000;S.view='listings';S.pg=0;rerender();};});
-        const bF=document.getElementById('bedsFilterInline');if(bF)bF.onchange=()=>{S.bedsF=bF.value;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};
-        const aF=document.getElementById('areaFilter');if(aF)aF.onchange=()=>{S.af=aF.value;S.pg=0;rerender();};
+        document.querySelectorAll('.area-link').forEach(el=>{el.onclick=()=>{S.areaF=el.dataset.area;S.confF='All';S.minY=0;S.maxP=3000000;S.view='listings';S.pg=0;rerender();};});
         const cF=document.getElementById('confFilter');if(cF)cF.onchange=()=>{S.confF=cF.value;S.pg=0;rerender();};
         const mY=document.getElementById('minY');if(mY)mY.onchange=()=>{S.minY=parseFloat(mY.value)||0;S.pg=0;rerender();};
         const mP=document.getElementById('maxP');if(mP)mP.onchange=()=>{S.maxP=parseInt(mP.value,10)||3000000;S.pg=0;rerender();};
         const pP=document.getElementById('prevPg');if(pP)pP.onclick=()=>{S.pg=Math.max(0,S.pg-1);rerender();};
         const nP=document.getElementById('nextPg');if(nP)nP.onclick=()=>{S.pg=Math.min(tp-1,S.pg+1);rerender();};
-        const dPP=document.getElementById('prevDPg');if(dPP)dPP.onclick=()=>{S.dpg=Math.max(0,S.dpg-1);rerender();};
-        const dNP=document.getElementById('nextDPg');if(dNP)dNP.onclick=()=>{S.dpg=Math.min(dtp-1,S.dpg+1);rerender();};
-        const rPP=document.getElementById('prevRDPg');if(rPP)rPP.onclick=()=>{S.rdpg=Math.max(0,S.rdpg-1);rerender();};
-        const rNP=document.getElementById('nextRDPg');if(rNP)rNP.onclick=()=>{S.rdpg=Math.min(rdtp-1,S.rdpg+1);rerender();};
+        const pd=document.getElementById('prevDropPg');if(pd)pd.onclick=()=>{if(S.dropView==='sales'){S.dpg=Math.max(0,S.dpg-1);}else{S.rdpg=Math.max(0,S.rdpg-1);}rerender();};
+        const nd=document.getElementById('nextDropPg');if(nd)nd.onclick=()=>{if(S.dropView==='sales'){S.dpg=Math.min(dtp-1,S.dpg+1);}else{S.rdpg=Math.min(rdtp-1,S.rdpg+1);}rerender();};
       }
       window.render = render;
       fetch(DATA_URL).then(r=>r.ok?r.json():Promise.reject()).then(data=>{window.RAW=data;render();}).catch(()=>{window.RAW=null;render();});
