@@ -32,6 +32,21 @@ Track Dubai and Abu Dhabi residential listing yields (studios and 1-bed) with **
    ```  
    This writes `data/dashboard_data.json`.
 
+### Fully automated fetch + process
+
+- Fetch both tracking queries (sales + rentals) and rebuild data in one go:
+  ```bash
+  python scripts/daily_update_runner.py --once
+  ```
+- Run continuously with a daily schedule at **6:00 PM UAE time**:
+  ```bash
+  python scripts/daily_update_runner.py
+  ```
+- Direct fetch script (without processing):
+  ```bash
+  python scripts/fetch_propertyfinder_listings.py
+  ```
+
 3. **Open the dashboard**  
    Browsers block `file://` JSON requests, so serve the folder, then open the app:
    ```bash
@@ -71,6 +86,7 @@ Track Dubai and Abu Dhabi residential listing yields (studios and 1-bed) with **
 - No fixed filenames are required; legacy files like `sales.json` / `rentals.json` are still supported.
 - Sales listing prices are snapshotted in SQLite and compared run-to-run to track cumulative price drops.
 - Rental listing annualized rents are also snapshotted and compared run-to-run to track cumulative rent drops.
+- Tracking scope is currently limited to **Studio, 1BR, and 2BR apartments** (3BR+ excluded).
 - Legacy scripts (`scripts/sales_scraping_script.js`, `scripts/rental_scraping_script.js`) still work, but `scripts/unified_scraping_script.js` is now the recommended default.
 
 To avoid bot restrictions, run the script only after you’ve opened the site and created the search yourself.

@@ -26,6 +26,7 @@ from config.area_tiers import (
 )
 
 PF_BASE = "https://www.propertyfinder.ae"
+TRACKED_BEDS = {"Studio", "1BR", "2BR"}
 
 # Legacy names kept for backward compatibility
 LEGACY_SALES_FILES = {
@@ -154,8 +155,10 @@ def norm_beds(v):
     s = str(v).strip().lower()
     if s in ("0", "studio"):
         return "Studio"
-    if re.match(r"^\d+$", s):
-        return f"{int(s)}BR"
+    if s == "1":
+        return "1BR"
+    if s == "2":
+        return "2BR"
     return None
 
 
@@ -167,14 +170,25 @@ def norm_beds_tracking(v, listing=None):
         return "Studio"
     m = re.match(r"^(\d+)\s*br$", unit_type)
     if m:
-        return f"{m.group(1)}BR"
+        val = f"{m.group(1)}BR"
+        return val if val in TRACKED_BEDS else None
 
     s = str(v).strip().lower()
     if s in ("0", "studio"):
         return "Studio"
-    if re.match(r"^\d+$", s):
-        return f"{int(s)}BR"
-    return "Other"
+    if s == "1":
+        return "1BR"
+    if s == "2":
+        return "2BR"
+    return None
+
+
+def get_city_area(listing):
+    city = detect_city_from_listing(listing)
+    city_from_path, area_from_path = extract_area(listing.get("path"))
+    area_payload = (listing.get("area") or "").strip()
+    area = area_payload or area_from_path or "Other"
+    return city or city_from_path or "Dubai", area
 
 
 def sc_for_area(area):
@@ -381,11 +395,13 @@ def store_snapshot(conn, sales_filtered, snapshot_date):
         if not lid or lid in seen:
             continue
         seen.add(lid)
-        city, area = extract_area(s.get("path"))
-        city = city or detect_city_from_listing(s)
+        city, area = get_city_area(s)
+        beds = norm_beds_tracking(s.get("beds"), s)
+        if beds is None:
+            continue
         rows.append((
             lid, snapshot_date, float(s.get("price", 0)),
-            norm_sqft(s.get("sqft")), norm_beds_tracking(s.get("beds"), s),
+            norm_sqft(s.get("sqft")), beds,
             (s.get("building") or "").strip(),
             area or "Other", city or "Dubai",
             s.get("path", ""), (s.get("furnished") or "").strip(),
@@ -405,15 +421,17 @@ def store_rental_snapshot(conn, rentals_filtered, snapshot_date):
         if not lid or lid in seen:
             continue
         seen.add(lid)
-        city, area = extract_area(r.get("path"))
-        city = city or detect_city_from_listing(r)
+        city, area = get_city_area(r)
+        beds = norm_beds_tracking(r.get("beds"), r)
+        if beds is None:
+            continue
         ann = annual_rent(r.get("rent"), r.get("period"))
         if ann is None or ann <= 0:
             continue
         rows.append((
             lid, snapshot_date, float(ann),
             float(r.get("rent") or 0), (r.get("period") or "").strip(),
-            norm_sqft(r.get("sqft")), norm_beds_tracking(r.get("beds"), r),
+            norm_sqft(r.get("sqft")), beds,
             (r.get("building") or "").strip(),
             area or "Other", city or "Dubai",
             r.get("path", ""), (r.get("furnished") or "").strip(),
@@ -634,9 +652,12 @@ def main():
     # --- Build rental indexes ---
     by_building = defaultdict(list)
     by_area = defaultdict(list)
-    for r in rentals_dedup:
+    for r in rentals_for_tracking:
         sqft = norm_sqft(r.get("sqft"))
         if sqft is None or sqft <= 0:
+            continue
+        beds = norm_beds(r.get("beds"))
+        if beds is None:
             continue
         ann = annual_rent(r.get("rent"), r.get("period"))
         if ann is None or ann <= 0:
@@ -645,16 +666,16 @@ def main():
         if rpsf < 30 or rpsf > 300:
             continue
         b = (r.get("building") or "").strip()
-        _, area = extract_area(r.get("path"))
+        city, area = get_city_area(r)
         area = area or "Other"
         if b:
-            by_building[b].append(rpsf)
-        by_area[area].append(rpsf)
+            by_building[(city, area, beds, b.lower())].append(rpsf)
+        by_area[(city, area, beds)].append(rpsf)
 
     # --- Areas list ---
     area_set = set()
     for s in sales:
-        _, area = extract_area(s.get("path"))
+        _, area = get_city_area(s)
         area_set.add(area or "Other")
     areas = ["Other"] + sorted(a for a in area_set if a != "Other")
 
@@ -663,7 +684,7 @@ def main():
     listings_out = []
     for s in sales:
         building = (s.get("building") or "").strip() or "Unknown"
-        city, area = extract_area(s.get("path"))
+        city, area = get_city_area(s)
         area = area or "Other"
         city = city or "Dubai"
         price = float(s.get("price") or 0)
@@ -676,11 +697,13 @@ def main():
 
         rpsf = None
         conf = "A"
-        if building in by_building:
-            rpsf = median(by_building[building])
+        bkey = (city, area, beds, building.lower())
+        akey = (city, area, beds)
+        if bkey in by_building:
+            rpsf = median(by_building[bkey])
             conf = "B"
-        if rpsf is None and area in by_area:
-            rpsf = median(by_area[area])
+        if rpsf is None and akey in by_area:
+            rpsf = median(by_area[akey])
         if rpsf is None:
             continue
 
@@ -707,6 +730,8 @@ def main():
          first_price, prev_price, cur_price,
          drop_prev, drop_pct_prev, total_drop, total_drop_pct,
          drop_count, first_seen, last_drop_date) = row
+        if beds not in TRACKED_BEDS:
+            continue
         building = building or "Unknown"
         area = area or "Other"
         city = city or "Dubai"
@@ -715,10 +740,12 @@ def main():
         sc_psf = sc_for_area(area)
         furn_code = norm_furnished(furnished)
         rpsf = None
-        if building in by_building:
-            rpsf = median(by_building[building])
-        if rpsf is None and area in by_area:
-            rpsf = median(by_area[area])
+        bkey = (city, area, beds, (building or "").lower())
+        akey = (city, area, beds)
+        if bkey in by_building:
+            rpsf = median(by_building[bkey])
+        if rpsf is None and akey in by_area:
+            rpsf = median(by_area[akey])
         if rpsf and sqft and cur_price > 0:
             rent_annual = rpsf * sqft
             new_gy = round((rent_annual / cur_price) * 100, 1)
@@ -748,6 +775,8 @@ def main():
          first_rent, prev_rent, cur_rent,
          drop_prev, drop_pct_prev, total_drop, total_drop_pct,
          drop_count, first_seen, last_drop_date) = row
+        if beds not in TRACKED_BEDS:
+            continue
         building = building or "Unknown"
         area = area or "Other"
         city = city or "Dubai"
@@ -781,9 +810,9 @@ def main():
         if row[8] == "B":
             area_stats[name]["bldg"] += 1
         area_stats[name]["rent_annuals"].append(row[2] * (row[5] / 100))
-    for a in by_area:
-        area_stats[a]["rentals"] = len(by_area[a])
-        area_stats[a]["rpsf"] = by_area[a]
+    for (_, area_name, _), values in by_area.items():
+        area_stats[area_name]["rentals"] += len(values)
+        area_stats[area_name]["rpsf"].extend(values)
 
     summaries_out = []
     for name in areas:
@@ -819,7 +848,14 @@ def main():
             round(avg_gy, 1), round(avg_ny, 1), sc_psf, tier, med_rpsf, area_city,
         ])
 
-    out = {"a": areas, "l": listings_out, "s": summaries_out, "d": drops_out, "rd": rental_drops_out}
+    out = {
+        "a": areas,
+        "l": listings_out,
+        "s": summaries_out,
+        "d": drops_out,
+        "rd": rental_drops_out,
+        "u": snapshot_date,
+    }
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump(out, f, separators=(",", ":"))
 
