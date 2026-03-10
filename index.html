@@ -49,16 +49,24 @@
     body { margin: 0; padding: 24px; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; font-size: 15px; transition: background 0.25s, color 0.25s; }
     h1 { font-size: 26px; font-weight: 700; color: var(--text-bright); margin: 0 0 4px 0; letter-spacing: -0.3px; text-align: center; }
     .subtitle { color: var(--text-muted); font-size: 14px; margin-bottom: 18px; line-height: 1.5; text-align: center; }
-    .kpi-section { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
+    .kpi-section { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 14px; }
     .kpi-section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-muted); min-width: 68px; padding-top: 14px; flex-shrink: 0; }
     .kpi-section-blocks { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
     .kpis { display: flex; gap: 10px; justify-content: flex-start; flex-wrap: wrap; }
     .kpi { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; text-align: center; flex: 1; min-width: 100px; max-width: 160px; transition: background 0.25s, border-color 0.25s; }
-    .kpi .label { font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-muted); }
-    .kpi .value { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 22px; margin-top: 3px; color: var(--text-bright); }
-    .kpi .value .sub { color: var(--text-muted); font-size: 13px; font-weight: 400; }
+    .kpi .label { font-size: 11px; font-weight: 700; letter-spacing: 0.35px; text-transform: uppercase; color: var(--text-muted); }
+    .kpi .value { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 20px; margin-top: 2px; color: var(--text-bright); }
+    .kpi .value .sub { color: var(--text-muted); font-size: 12px; font-weight: 400; }
+    .kpi.kpi-primary .value { font-size: 24px; }
     .kpi.accent .value { color: var(--accent-green); }
     .kpi.red .value { color: var(--accent-red); }
+    .kpi-range-wrap { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; flex: 1; min-width: 0; max-width: 320px; }
+    .kpi-range-wrap .label { font-size: 11px; font-weight: 700; letter-spacing: 0.35px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+    .kpi-range-bar { height: 8px; border-radius: 4px; background: var(--border); position: relative; margin: 8px 0 6px 0; overflow: visible; }
+    .kpi-range-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent-blue), var(--accent-green)); opacity: 0.85; }
+    .kpi-range-dot { position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%; background: var(--text-bright); border: 2px solid var(--bg-card); transform: translate(-50%,-50%); box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+    .kpi-range-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; margin-top: 2px; }
+    .kpi-range-avg { font-size: 13px; font-weight: 600; color: var(--text-bright); margin-top: 4px; }
     .filter-group { margin-bottom: 14px; text-align: center; }
     .filter-label { font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 7px; }
     .filter-row { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; justify-content: center; }
@@ -120,7 +128,9 @@
       .kpi-section-title { min-width: 56px; font-size: 10px; padding-top: 12px; }
       .kpis { gap: 10px; }
       .kpi { min-width: 100px; max-width: 160px; padding: 10px 12px; }
+      .kpi.kpi-primary .value { font-size: 22px; }
       .kpi .value { font-size: 20px; }
+      .kpi-range-wrap { max-width: 280px; }
       h1 { font-size: 24px; }
       .subtitle { font-size: 13px; margin-bottom: 14px; }
       .theme-toggle { top: 12px; right: 12px; width: 36px; height: 36px; }
@@ -135,8 +145,10 @@
       .kpi-section-title { min-width: 52px; font-size: 10px; padding-top: 10px; }
       .kpis { gap: 8px; }
       .kpi { flex: 1 1 calc(50% - 8px); min-width: 90px; max-width: none; padding: 9px 10px; }
+      .kpi.kpi-primary .value { font-size: 19px; }
       .kpi .label { font-size: 10px; }
       .kpi .value { font-size: 17px; }
+      .kpi-range-wrap { max-width: 100%; min-width: 0; }
       .mobile-filter-dock {
         position: sticky;
         top: 0;
@@ -384,11 +396,17 @@
 
         const RENTAL_COUNT = Number(RAW.rc || 0);
 
+        function medianArr(arr) {
+          if (!arr || !arr.length) return 0;
+          const s = arr.slice().sort((a,b)=>a-b);
+          const m = s.length >> 1;
+          return s.length % 2 ? s[m] : (s[m-1]+s[m])/2;
+        }
         const S = window.dashState = window.dashState || {
           tf:'All', areaF:'All', cityF:'All', bedsF:'All',
           view:'listings', confF:'All',
           minY:0, maxP:2000000, pg:0, dpg:0, rdpg:0,
-          sk:'netYield', sd:'desc', ask:'avgNY', asd:'desc',
+          sk:'netYield', sd:'desc', ask:'medPrice', asd:'asc',
           dsk:'totalDropPct', dsd:'desc', PP:50,
           dropView:'sales', areaExpanded:false,
           indexType:'sales'
@@ -468,23 +486,23 @@
 
         const st = {
           n: fl.length,
-          ap: fl.length ? fl.reduce((s,l)=>s+l.price,0)/fl.length : 0,
+          mp: fl.length ? medianArr(fl.map(l=>l.price)) : 0,
           minP: fl.length ? Math.min(...fl.map(l=>l.price)) : 0,
           maxP_: fl.length ? Math.max(...fl.map(l=>l.price)) : 0,
-          agy: fl.length ? fl.reduce((s,l)=>s+l.grossYield,0)/fl.length : 0,
-          any_: fl.length ? fl.reduce((s,l)=>s+l.netYield,0)/fl.length : 0,
+          medGY: fl.length ? medianArr(fl.map(l=>l.grossYield)) : 0,
+          medNY: fl.length ? medianArr(fl.map(l=>l.netYield)) : 0,
           mgy: fl.length ? Math.max(...fl.map(l=>l.grossYield)) : 0,
           minGY: fl.length ? Math.min(...fl.map(l=>l.grossYield)) : 0,
           P: fl.filter(l=>l.tier==='P').length, E: fl.filter(l=>l.tier==='E').length,
           M: fl.filter(l=>l.tier==='M').length, X: fl.filter(l=>l.tier==='X').length,
-          avgPctDrop: fd.length ? fd.reduce((s,d)=>s+d.totalDropPct,0)/fd.length : 0,
+          medPctDrop: fd.length ? medianArr(fd.map(d=>d.totalDropPct)) : 0,
           bigPctDrop: fd.length ? Math.max(...fd.map(d=>d.totalDropPct)) : 0,
           bigAedDrop: fd.length ? Math.max(...fd.map(d=>d.totalDrop)) : 0,
           bigPctDropUrl: fd.length ? fd.reduce((best,d)=>d.totalDropPct>best.totalDropPct?d:best,fd[0]).url : '',
           bigAedDropUrl: fd.length ? fd.reduce((best,d)=>d.totalDrop>best.totalDrop?d:best,fd[0]).url : '',
           dropCount: fd.length,
           rentDropCount: frd.length,
-          rentAvgPctDrop: frd.length ? frd.reduce((s,d)=>s+d.totalDropPct,0)/frd.length : 0,
+          rentMedPctDrop: frd.length ? medianArr(frd.map(d=>d.totalDropPct)) : 0,
           rentBigPctDrop: frd.length ? Math.max(...frd.map(d=>d.totalDropPct)) : 0,
           rentBigAedDrop: frd.length ? Math.max(...frd.map(d=>d.totalDrop)) : 0,
           rentBigPctDropUrl: frd.length ? frd.reduce((best,d)=>d.totalDropPct>best.totalDropPct?d:best,frd[0]).url : '',
@@ -544,34 +562,30 @@
         if(st.rentBigPctDropUrl && st.rentBigPctDrop>0) rentBigPctVal = '<a href="'+st.rentBigPctDropUrl+'" target="_blank">'+rentBigPctVal+'</a>';
         if(st.rentBigAedDropUrl && st.rentBigAedDrop>0) rentBigAedVal = '<a href="'+st.rentBigAedDropUrl+'" target="_blank">'+rentBigAedVal+'</a>';
 
+        const priceRange = st.maxP_ > st.minP ? (st.mp - st.minP) / (st.maxP_ - st.minP) : 0.5;
+        const priceRangePct = Math.max(0, Math.min(100, priceRange * 100));
         h += '<div class="kpi-section">';
         h += '<div class="kpi-section-title">Drops</div>';
         h += '<div class="kpi-section-blocks">';
         h += '<div class="kpis">';
-        h += '<div class="kpi red"><div class="label">Price Drops</div><div class="value">'+st.dropCount.toLocaleString()+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Avg % Drop</div><div class="value">'+(st.avgPctDrop>0?st.avgPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Biggest % Drop</div><div class="value">'+bigPctVal+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Biggest AED Drop</div><div class="value">'+bigAedVal+'</div></div>';
-        h += '</div>';
-        h += '<div class="kpis">';
-        h += '<div class="kpi red"><div class="label">Rental Drops</div><div class="value">'+st.rentDropCount.toLocaleString()+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Rental Avg % Drop</div><div class="value">'+(st.rentAvgPctDrop>0?st.rentAvgPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Rental Biggest % Drop</div><div class="value">'+rentBigPctVal+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Rental Biggest AED Drop</div><div class="value">'+rentBigAedVal+'</div></div>';
+        h += '<div class="kpi kpi-primary red"><div class="label">Price Drops</div><div class="value">'+st.dropCount.toLocaleString()+'</div><div class="value sub" style="font-size:11px;margin-top:2px">Median '+(st.medPctDrop>0?st.medPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Biggest %</div><div class="value">'+bigPctVal+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Biggest AED</div><div class="value">'+bigAedVal+'</div></div>';
+        h += '<div class="kpi kpi-primary red"><div class="label">Rental Drops</div><div class="value">'+st.rentDropCount.toLocaleString()+'</div><div class="value sub" style="font-size:11px;margin-top:2px">Median '+(st.rentMedPctDrop>0?st.rentMedPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Rental Biggest %</div><div class="value">'+rentBigPctVal+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Rental Biggest AED</div><div class="value">'+rentBigAedVal+'</div></div>';
         h += '</div>';
         h += '</div></div>';
         h += '<div class="kpi-section">';
         h += '<div class="kpi-section-title">Prices</div>';
         h += '<div class="kpi-section-blocks"><div class="kpis">';
-        h += '<div class="kpi"><div class="label">Avg Price</div><div class="value">'+fmt(st.ap)+' <span class="sub">AED</span></div></div>';
-        h += '<div class="kpi"><div class="label">Min Price</div><div class="value">'+fmt(st.minP)+' <span class="sub">AED</span></div></div>';
-        h += '<div class="kpi"><div class="label">Max Price</div><div class="value">'+fmt(st.maxP_)+' <span class="sub">AED</span></div></div>';
+        h += '<div class="kpi-range-wrap"><div class="label">Sale price range</div><div class="kpi-range-bar"><div class="kpi-range-fill" style="width:100%"></div><div class="kpi-range-dot" style="left:'+priceRangePct.toFixed(1)+'%"></div></div><div class="kpi-range-labels"><span>'+fmt(st.minP)+'</span><span>'+fmt(st.maxP_)+'</span></div><div class="kpi-range-avg">Median '+fmt(st.mp)+' AED</div></div>';
         h += '</div></div></div>';
         h += '<div class="kpi-section">';
         h += '<div class="kpi-section-title">Yields</div>';
         h += '<div class="kpi-section-blocks"><div class="kpis">';
-        h += '<div class="kpi accent"><div class="label">Avg Gross Yield</div><div class="value">'+st.agy.toFixed(1)+'%</div></div>';
-        h += '<div class="kpi accent"><div class="label">Avg Net Yield</div><div class="value">'+st.any_.toFixed(1)+'%</div></div>';
+        h += '<div class="kpi kpi-primary accent"><div class="label">Median Net Yield</div><div class="value">'+st.medNY.toFixed(1)+'%</div></div>';
+        h += '<div class="kpi accent"><div class="label">Median Gross Yield</div><div class="value">'+st.medGY.toFixed(1)+'%</div></div>';
         h += '<div class="kpi"><div class="label">Max Gross Yield</div><div class="value">'+st.mgy.toFixed(1)+'%</div></div>';
         h += '</div></div></div>';
         h += '<div style="height:8px"></div>';
@@ -613,18 +627,24 @@
           if (!isFinite(minV) || !isFinite(maxV)) {
             return '<div style="padding:10px 0;color:var(--text-muted);font-size:13px">Index data unavailable.</div>';
           }
-          const padding = 6;
+          const padding = 8;
+          const chartW = 165;
+          const axisW = 42;
+          const totalW = chartW + axisW;
           const height = 72;
-          const width = 200;
           const span = maxV - minV || 1;
-          function yVal(v){ return padding + (height - 2*padding) * (1 - (v - minV) / span); }
-          function xVal(idx, n){ if(n<=1) return width/2; const left=padding, right=width-padding; return left + (right-left)*(idx/(n-1)); }
+          const topP = padding;
+          const bottomP = height - padding;
+          const plotH = bottomP - topP;
+          function yVal(v){ return topP + plotH * (1 - (v - minV) / span); }
+          function xVal(idx, n){ if(n<=1) return chartW/2; return padding + (chartW - 2*padding) * (idx / Math.max(1, n-1)); }
           const colors = {'Studio':'var(--accent-green)','1BR':'var(--accent-blue)','2BR':'var(--tier-m)'};
-          let svg = '<svg viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none" style="width:100%;height:130px;background:transparent">';
+          let svg = '<svg viewBox="0 0 '+totalW+' '+height+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:130px;background:transparent">';
           if (minV<=base && base<=maxV) {
             const yb = yVal(base);
-            svg += '<line x1="'+padding+'" y1="'+yb.toFixed(1)+'" x2="'+(width-padding-24)+'" y2="'+yb.toFixed(1)+'" stroke="var(--accent-blue)" stroke-dasharray="4,2" stroke-width="1.2"/>';
-            svg += '<text x="'+(width-padding-20)+'" y="'+(yb-3).toFixed(1)+'" fill="var(--accent-blue)" font-size="9" text-anchor="start">Base 100</text>';
+            svg += '<line x1="'+padding+'" y1="'+yb.toFixed(1)+'" x2="'+(chartW-padding)+'" y2="'+yb.toFixed(1)+'" stroke="var(--accent-blue)" stroke-dasharray="4,2" stroke-width="1.4"/>';
+            svg += '<text x="'+(chartW+6)+'" y="'+(yb-5).toFixed(1)+'" fill="var(--accent-blue)" font-size="9" font-weight="600" text-anchor="start">Base 100</text>';
+            svg += '<text x="'+(chartW+6)+'" y="'+(yb+5).toFixed(1)+'" fill="var(--text-muted)" font-size="9" text-anchor="start">0%</text>';
           }
           series.forEach(s => {
             const pts = s.pts;
@@ -636,30 +656,29 @@
               const y = yVal(p.v);
               d += (i===0?'M':'L')+x.toFixed(1)+' '+y.toFixed(1)+' ';
             });
-            svg += '<path d="'+d.trim()+'" fill="none" stroke="'+(colors[s.beds]||'var(--accent-blue)')+'" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>';
+            svg += '<path d="'+d.trim()+'" fill="none" stroke="'+(colors[s.beds]||'var(--accent-blue)')+'" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>';
           });
           const allVals = [];
           series.forEach(s => s.pts.forEach(p => allVals.push(p.v)));
-          const deltas = [];
-          if (allVals.length) {
-            const minD = Math.min(...allVals) - base;
-            const maxD = Math.max(...allVals) - base;
-            const low = Math.round(minD/5)*5;
-            const high = Math.round(maxD/5)*5;
-            const mid = 0;
-            deltas.push(low, mid, high);
-          }
-          const seen = new Set();
-          deltas.forEach(d => {
+          const minD = allVals.length ? Math.min(...allVals) - base : 0;
+          const maxD = allVals.length ? Math.max(...allVals) - base : 0;
+          const step = Math.max(5, Math.ceil((maxD - minD) / 4));
+          const tickDeltas = [];
+          for (let d = Math.floor(minD/step)*step; d <= maxD + 1e-6; d += step) { tickDeltas.push(d); }
+          if (tickDeltas.indexOf(0) === -1) tickDeltas.push(0);
+          tickDeltas.sort((a,b)=>a-b);
+          const minGap = 14;
+          const axisX = chartW + 4;
+          let lastY = -999;
+          tickDeltas.forEach(d => {
             if (!isFinite(d)) return;
-            const key = Math.round(d);
-            if (seen.has(key)) return;
-            seen.add(key);
             const v = base + d;
-            if (v < minV || v > maxV) return;
+            if (v < minV - 0.01 || v > maxV + 0.01) return;
             const y = yVal(v);
+            if (Math.abs(y - lastY) < minGap) return;
+            lastY = y;
             const label = (d>0?'+':'')+d.toFixed(0)+'%';
-            svg += '<text x="'+(width-2)+'" y="'+(y+3).toFixed(1)+'" fill="var(--text-dim)" font-size="9" text-anchor="end">'+label+'</text>';
+            svg += '<text x="'+axisX+'" y="'+(y+3.5).toFixed(1)+'" fill="var(--text-dim)" font-size="10" text-anchor="start">'+label+'</text>';
           });
           svg += '</svg>';
           const latest = {};
@@ -738,7 +757,7 @@
 
         if(S.view==='areas') {
           h += '<div class="table-wrap"><table><thead><tr>';
-          h += ath('Area','name',true)+ath('City','city')+ath('Sales','count')+ath('Rents','rentals')+ath('Bldg%','bldgPct')+ath('Avg Price','avgPrice')+ath('Median','medPrice')+ath('Avg Rent','avgRent')+ath('R/sqft','medRpsf')+ath('Gross Yield','avgGY')+ath('Net Yield','avgNY')+ath('SC/sf','scPsf')+ath('Tier','tier');
+          h += ath('Area','name',true)+ath('City','city')+ath('Sales','count')+ath('Rents','rentals')+ath('Bldg%','bldgPct')+ath('Median Price','medPrice')+ath('Median Rent','avgRent')+ath('R/sqft','medRpsf')+ath('Median Gross','avgGY')+ath('Median Net','avgNY')+ath('SC/sf','scPsf')+ath('Tier','tier');
           h += '</tr></thead><tbody>';
           fa.forEach((a,i) => {
             const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)';
@@ -747,7 +766,7 @@
             h += '<td class="left" style="color:var(--text-dim);font-size:12px">'+a.city+'</td>';
             h += '<td>'+a.count+'</td><td style="color:var(--text-dim)">'+a.rentals+'</td>';
             h += '<td style="color:'+bColor(a.bldgPct)+'">'+a.bldgPct+'%</td>';
-            h += '<td>'+fmt(a.avgPrice)+'</td><td style="color:var(--text-dim)">'+fmt(a.medPrice)+'</td>';
+            h += '<td>'+fmt(a.medPrice)+'</td>';
             h += '<td style="color:var(--text-dim)">'+fmt(a.avgRent)+'</td><td style="color:var(--text-dim)">'+a.medRpsf+'</td>';
             h += '<td style="font-weight:700;color:'+gyColor(a.avgGY)+'">'+pct(a.avgGY)+'</td>';
             h += '<td style="font-weight:600;color:'+nyColor(a.avgNY)+'">'+pct(a.avgNY)+'</td>';

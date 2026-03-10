@@ -1042,11 +1042,10 @@ def main():
             continue
         prices = st["prices"]
         bldg = st["bldg"]
-        avg_price = sum(prices) / count
-        med_price = sorted(prices)[len(prices) // 2]
-        avg_rent = sum(st["rent_annuals"]) / count if st["rent_annuals"] else 0
-        avg_gy = sum(st["gy"]) / count if st["gy"] else 0
-        avg_ny = sum(st["ny"]) / count if st["ny"] else 0
+        med_price = median(prices) if prices else 0
+        med_rent = median(st["rent_annuals"]) if st["rent_annuals"] else 0
+        med_gy = median(st["gy"]) if st["gy"] else 0
+        med_ny = median(st["ny"]) if st["ny"] else 0
         sc_psf = sc_for_area(name)
         tier = AREA_TIERS.get(name, DEFAULT_TIER)
         med_rpsf = round(median(st["rpsf"]), 1) if st["rpsf"] else 0
@@ -1064,8 +1063,8 @@ def main():
             area_city = "Abu Dhabi"
         summaries_out.append([
             name, count, st["rentals"], bldg, count - bldg,
-            round(avg_price), round(med_price), min(prices), max(prices), round(avg_rent),
-            round(avg_gy, 1), round(avg_ny, 1), sc_psf, tier, med_rpsf, area_city,
+            round(med_price), round(med_price), min(prices), max(prices), round(med_rent),
+            round(med_gy, 1), round(med_ny, 1), sc_psf, tier, med_rpsf, area_city,
         ])
 
     # --- Compact index payloads for dashboard ---
