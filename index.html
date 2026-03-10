@@ -49,8 +49,11 @@
     body { margin: 0; padding: 24px; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; font-size: 15px; transition: background 0.25s, color 0.25s; }
     h1 { font-size: 26px; font-weight: 700; color: var(--text-bright); margin: 0 0 4px 0; letter-spacing: -0.3px; text-align: center; }
     .subtitle { color: var(--text-muted); font-size: 14px; margin-bottom: 18px; line-height: 1.5; text-align: center; }
-    .kpis { display: flex; gap: 14px; margin-bottom: 14px; justify-content: center; flex-wrap: wrap; }
-    .kpi { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; text-align: center; flex: 1; min-width: 150px; transition: background 0.25s, border-color 0.25s; }
+    .kpi-section { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
+    .kpi-section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-muted); min-width: 68px; padding-top: 14px; flex-shrink: 0; }
+    .kpi-section-blocks { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+    .kpis { display: flex; gap: 10px; justify-content: flex-start; flex-wrap: wrap; }
+    .kpi { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; text-align: center; flex: 1; min-width: 100px; max-width: 160px; transition: background 0.25s, border-color 0.25s; }
     .kpi .label { font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-muted); }
     .kpi .value { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 22px; margin-top: 3px; color: var(--text-bright); }
     .kpi .value .sub { color: var(--text-muted); font-size: 13px; font-weight: 400; }
@@ -103,6 +106,7 @@
     .quick-chip-group { display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .quick-chip-group::-webkit-scrollbar { display: none; }
     .dropdown-filters { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 8px; margin-bottom: 10px; }
+    .top-filters-wrap { margin-bottom: 16px; }
     .areas-inline { margin-bottom: 12px; }
     .areas-inline-row { display: flex; gap: 7px; overflow-x: auto; white-space: nowrap; padding-bottom: 4px; }
     .areas-inline-row::-webkit-scrollbar { display: none; }
@@ -113,8 +117,9 @@
 
     @media (max-width: 1024px) {
       body { padding: 16px; }
+      .kpi-section-title { min-width: 56px; font-size: 10px; padding-top: 12px; }
       .kpis { gap: 10px; }
-      .kpi { min-width: 140px; padding: 10px 12px; }
+      .kpi { min-width: 100px; max-width: 160px; padding: 10px 12px; }
       .kpi .value { font-size: 20px; }
       h1 { font-size: 24px; }
       .subtitle { font-size: 13px; margin-bottom: 14px; }
@@ -126,8 +131,10 @@
       body { padding: 12px; font-size: 14px; }
       h1 { font-size: 21px; margin-top: 30px; }
       .subtitle { font-size: 12px; line-height: 1.4; margin-bottom: 12px; }
-      .kpis { gap: 8px; margin-bottom: 10px; }
-      .kpi { flex: 1 1 calc(50% - 8px); min-width: 0; padding: 9px 10px; }
+      .kpi-section { gap: 10px; margin-bottom: 10px; }
+      .kpi-section-title { min-width: 52px; font-size: 10px; padding-top: 10px; }
+      .kpis { gap: 8px; }
+      .kpi { flex: 1 1 calc(50% - 8px); min-width: 90px; max-width: none; padding: 9px 10px; }
       .kpi .label { font-size: 10px; }
       .kpi .value { font-size: 17px; }
       .mobile-filter-dock {
@@ -429,6 +436,9 @@
         frd = frd.slice().sort((a,b) => cmp(a,b,S.dsk,S.dsd));
 
         const bedCounts = LISTINGS.reduce((acc, l) => {
+          if (S.cityF !== 'All' && l.city !== S.cityF) return acc;
+          if (S.areaF !== 'All' && l.area !== S.areaF) return acc;
+          if (S.tf !== 'All' && l.tier !== S.tf) return acc;
           const key = l.beds || 'Unknown';
           acc[key] = (acc[key] || 0) + 1;
           return acc;
@@ -442,14 +452,14 @@
           return String(a).localeCompare(String(b));
         };
         const bedKeys = Object.keys(bedCounts).sort(bedSort);
-        const bedFilterOptions = [{k:'All', l:'All Types'}].concat(
+        const bedFilterOptions = [{k:'All', l:'Bedrooms'}].concat(
           bedKeys.map(k => ({k, l:`${k} (${(bedCounts[k] || 0).toLocaleString()})`}))
         );
         const quickBedOptions = [{k:'All', l:'All'}].concat(
           bedKeys.slice(0, 4).map(k => ({k, l:k}))
         );
         const qualityOptions = [
-          {k:'All', l:'All Qualities'},
+          {k:'All', l:'Community Quality'},
           {k:'P', l:'Prime'},
           {k:'E', l:'Established'},
           {k:'M', l:'Mid-Tier'},
@@ -488,7 +498,19 @@
         const dPaged = fd.slice(S.dpg*S.PP,(S.dpg+1)*S.PP);
         const rdtp = Math.ceil(frd.length/S.PP)||1;
         const rdPaged = frd.slice(S.rdpg*S.PP,(S.rdpg+1)*S.PP);
-        const allAreas = ['All',...[...new Set(LISTINGS.map(l=>l.area))].filter(Boolean).sort()];
+        const areaUniverse = LISTINGS.filter(l => {
+          if (S.cityF !== 'All' && l.city !== S.cityF) return false;
+          if (S.bedsF !== 'All' && l.beds !== S.bedsF) return false;
+          if (S.tf !== 'All' && l.tier !== S.tf) return false;
+          return true;
+        });
+        const allAreas = ['All',...[...new Set(areaUniverse.map(l=>l.area))].filter(Boolean).sort()];
+        if (S.areaF !== 'All' && !allAreas.includes(S.areaF)) {
+          S.areaF = 'All';
+        }
+        if (S.bedsF !== 'All' && !bedKeys.includes(S.bedsF)) {
+          S.bedsF = 'All';
+        }
         function rerender() { render(); }
 
         let h = '<div style="max-width:1440px">';
@@ -496,6 +518,22 @@
         h += '<div style="text-align:center;color:var(--text-muted);font-size:12px;margin-bottom:4px">Last Updated: '+updatedAtLabel+'</div>';
         const rentalCountLabel = RENTAL_COUNT > 0 ? RENTAL_COUNT.toLocaleString() : '\u2014';
         h += '<div class="subtitle">'+LISTINGS.length.toLocaleString()+' sale listings ('+st.dubaiN.toLocaleString()+' Dubai, '+st.adN.toLocaleString()+' Abu Dhabi) matched against '+rentalCountLabel+' rental listings (Source: Property Finder)</div>';
+
+        h += '<div class="top-filters-wrap">';
+        h += '<div class="dropdown-filters">';
+        h += '<select id="citySel">'+[{k:'All',l:'All Cities'},{k:'Dubai',l:'Dubai'},{k:'Abu Dhabi',l:'Abu Dhabi'}].map(o=>'<option value="'+o.k+'"'+(S.cityF===o.k?' selected':'')+'>'+o.l+'</option>').join('')+'</select>';
+        h += '<select id="bedsSel">'+bedFilterOptions.map(o=>'<option value="'+o.k+'"'+(S.bedsF===o.k?' selected':'')+'>'+(o.k==='All'?'Bedrooms':o.l)+'</option>').join('')+'</select>';
+        h += '<select id="areaSel">'+allAreas.map(o=>'<option value="'+o+'"'+(S.areaF===o?' selected':'')+'>'+(o==='All'?'All Areas':o)+'</option>').join('')+'</select>';
+        h += '<select id="tierSel">'+qualityOptions.map(o=>'<option value="'+o.k+'"'+(S.tf===o.k?' selected':'')+'>'+(o.k==='All'?'Community Quality':o.l)+'</option>').join('')+'</select>';
+        h += '</div>';
+        const activeAreasTop = (S.cityF==='Abu Dhabi' ? AD_AREAS : S.cityF==='Dubai' ? DUBAI_AREAS : [...DUBAI_AREAS,...AD_AREAS]).filter(a=>allAreas.includes(a));
+        const shownAreasTop = S.areaExpanded ? activeAreasTop : activeAreasTop.slice(0, 10);
+        h += '<div class="areas-inline"><div class="areas-inline-row">';
+        h += '<button class="fbtn'+(S.areaF==='All'?' active':'')+'" data-areachip="All">All Areas</button>';
+        shownAreasTop.forEach(a=>{ h += '<button class="fbtn'+(S.areaF===a?' active':'')+'" data-areachip="'+a+'">'+a+'</button>'; });
+        if(activeAreasTop.length>10) h += '<button class="fbtn" id="toggleAreasBtn">'+(S.areaExpanded?'Show Less':'Show More')+'</button>';
+        h += '</div></div>';
+        h += '</div>';
 
         var bigPctVal = st.bigPctDrop>0 ? st.bigPctDrop.toFixed(1)+'%' : '\u2014';
         var bigAedVal = st.bigAedDrop>0 ? fmt(st.bigAedDrop) : '\u2014';
@@ -506,6 +544,9 @@
         if(st.rentBigPctDropUrl && st.rentBigPctDrop>0) rentBigPctVal = '<a href="'+st.rentBigPctDropUrl+'" target="_blank">'+rentBigPctVal+'</a>';
         if(st.rentBigAedDropUrl && st.rentBigAedDrop>0) rentBigAedVal = '<a href="'+st.rentBigAedDropUrl+'" target="_blank">'+rentBigAedVal+'</a>';
 
+        h += '<div class="kpi-section">';
+        h += '<div class="kpi-section-title">Drops</div>';
+        h += '<div class="kpi-section-blocks">';
         h += '<div class="kpis">';
         h += '<div class="kpi red"><div class="label">Price Drops</div><div class="value">'+st.dropCount.toLocaleString()+'</div></div>';
         h += '<div class="kpi red"><div class="label">Avg % Drop</div><div class="value">'+(st.avgPctDrop>0?st.avgPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
@@ -518,32 +559,22 @@
         h += '<div class="kpi red"><div class="label">Rental Biggest % Drop</div><div class="value">'+rentBigPctVal+'</div></div>';
         h += '<div class="kpi red"><div class="label">Rental Biggest AED Drop</div><div class="value">'+rentBigAedVal+'</div></div>';
         h += '</div>';
-        h += '<div class="kpis">';
+        h += '</div></div>';
+        h += '<div class="kpi-section">';
+        h += '<div class="kpi-section-title">Prices</div>';
+        h += '<div class="kpi-section-blocks"><div class="kpis">';
         h += '<div class="kpi"><div class="label">Avg Price</div><div class="value">'+fmt(st.ap)+' <span class="sub">AED</span></div></div>';
         h += '<div class="kpi"><div class="label">Min Price</div><div class="value">'+fmt(st.minP)+' <span class="sub">AED</span></div></div>';
         h += '<div class="kpi"><div class="label">Max Price</div><div class="value">'+fmt(st.maxP_)+' <span class="sub">AED</span></div></div>';
-        h += '</div>';
-        h += '<div class="kpis">';
+        h += '</div></div></div>';
+        h += '<div class="kpi-section">';
+        h += '<div class="kpi-section-title">Yields</div>';
+        h += '<div class="kpi-section-blocks"><div class="kpis">';
         h += '<div class="kpi accent"><div class="label">Avg Gross Yield</div><div class="value">'+st.agy.toFixed(1)+'%</div></div>';
         h += '<div class="kpi accent"><div class="label">Avg Net Yield</div><div class="value">'+st.any_.toFixed(1)+'%</div></div>';
         h += '<div class="kpi"><div class="label">Max Gross Yield</div><div class="value">'+st.mgy.toFixed(1)+'%</div></div>';
-        h += '</div>';
+        h += '</div></div></div>';
         h += '<div style="height:8px"></div>';
-
-        h += '<div style="margin-bottom:14px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card)">';
-        h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">';
-        h += '<div class="filter-label" style="margin:0">Price Indices</div>';
-        h += '<div style="display:inline-flex;gap:4px;border-radius:999px;border:1px solid var(--border);padding:2px;background:var(--bg-row-odd);font-size:11px">';
-        h += '<button class="view-tab'+(S.indexType==='sales'?' active':'')+'" data-idxtype="sales" style="border-radius:999px;padding:4px 10px;font-size:11px">Sales</button>';
-        h += '<button class="view-tab'+(S.indexType==='rental'?' active':'')+'" data-idxtype="rental" style="border-radius:999px;padding:4px 10px;font-size:11px">Rental</button>';
-        h += '</div></div>';
-        if (S.cityF === 'All') {
-          h += '<div style="font-size:12.5px;color:var(--text-muted);margin-top:2px">Select a city above to see its studio / 1BR / 2BR index over time.</div>';
-        } else {
-          h += buildIndexChartHtml(S.cityF, S.indexType);
-        }
-        h += '</div>';
-        h += '<div style="height:6px"></div>';
 
         const tierAreas = {P:[],E:[],M:[],X:[]};
         SUMMARIES.forEach(s => { if(tierAreas[s.tier]) tierAreas[s.tier].push(s.name); });
@@ -572,25 +603,28 @@
             return '<div style="padding:10px 0;color:var(--text-muted);font-size:13px">No index points for current unit types.</div>';
           }
           let minV = Infinity, maxV = -Infinity;
+          const base = 100;
           series.forEach(s => s.pts.forEach(p => {
             if (p.v < minV) minV = p.v;
             if (p.v > maxV) maxV = p.v;
           }));
+          if (minV > base) minV = base;
+          if (maxV < base) maxV = base;
           if (!isFinite(minV) || !isFinite(maxV)) {
             return '<div style="padding:10px 0;color:var(--text-muted);font-size:13px">Index data unavailable.</div>';
           }
           const padding = 6;
-          const height = 60;
-          const width = 180;
+          const height = 72;
+          const width = 200;
           const span = maxV - minV || 1;
           function yVal(v){ return padding + (height - 2*padding) * (1 - (v - minV) / span); }
           function xVal(idx, n){ if(n<=1) return width/2; const left=padding, right=width-padding; return left + (right-left)*(idx/(n-1)); }
           const colors = {'Studio':'var(--accent-green)','1BR':'var(--accent-blue)','2BR':'var(--tier-m)'};
-          let svg = '<svg viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none" style="width:100%;height:120px;background:transparent">';
-          const base = 100;
+          let svg = '<svg viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none" style="width:100%;height:130px;background:transparent">';
           if (minV<=base && base<=maxV) {
             const yb = yVal(base);
-            svg += '<line x1="'+padding+'" y1="'+yb.toFixed(1)+'" x2="'+(width-padding)+'" y2="'+yb.toFixed(1)+'" stroke="var(--sep)" stroke-dasharray="2,2" stroke-width="0.8"/>';
+            svg += '<line x1="'+padding+'" y1="'+yb.toFixed(1)+'" x2="'+(width-padding-24)+'" y2="'+yb.toFixed(1)+'" stroke="var(--accent-blue)" stroke-dasharray="4,2" stroke-width="1.2"/>';
+            svg += '<text x="'+(width-padding-20)+'" y="'+(yb-3).toFixed(1)+'" fill="var(--accent-blue)" font-size="9" text-anchor="start">Base 100</text>';
           }
           series.forEach(s => {
             const pts = s.pts;
@@ -604,6 +638,29 @@
             });
             svg += '<path d="'+d.trim()+'" fill="none" stroke="'+(colors[s.beds]||'var(--accent-blue)')+'" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>';
           });
+          const allVals = [];
+          series.forEach(s => s.pts.forEach(p => allVals.push(p.v)));
+          const deltas = [];
+          if (allVals.length) {
+            const minD = Math.min(...allVals) - base;
+            const maxD = Math.max(...allVals) - base;
+            const low = Math.round(minD/5)*5;
+            const high = Math.round(maxD/5)*5;
+            const mid = 0;
+            deltas.push(low, mid, high);
+          }
+          const seen = new Set();
+          deltas.forEach(d => {
+            if (!isFinite(d)) return;
+            const key = Math.round(d);
+            if (seen.has(key)) return;
+            seen.add(key);
+            const v = base + d;
+            if (v < minV || v > maxV) return;
+            const y = yVal(v);
+            const label = (d>0?'+':'')+d.toFixed(0)+'%';
+            svg += '<text x="'+(width-2)+'" y="'+(y+3).toFixed(1)+'" fill="var(--text-dim)" font-size="9" text-anchor="end">'+label+'</text>';
+          });
           svg += '</svg>';
           const latest = {};
           series.forEach(s => { latest[s.beds] = s.pts[s.pts.length-1].v; });
@@ -613,23 +670,24 @@
             const sign = val>=100?'+':'';
             return '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:11.5px;color:var(--text-muted)"><span style="width:10px;height:10px;border-radius:999px;background:'+(colors[b]||'var(--accent-blue)')+'"></span><span>'+b+':</span><span style="color:'+(val>=100?'var(--accent-green)':'var(--accent-red)')+'">'+val.toFixed(1)+'</span><span style="color:var(--text-dim)">('+sign+ch+' from 100)</span></span>';
           }).join('');
-          return '<div style="margin-top:4px"><div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">'+city+' &middot; '+(type==='sales'?'Sales price':'Rental')+' index (100 = first snapshot)</div>'+svg+'<div style="margin-top:4px">'+legend+'</div></div>';
+          const baseDates = [];
+          series.forEach(s => { if (s.pts.length) baseDates.push(s.pts[0].t); });
+          const baseLabel = baseDates.length ? fmtShortDateStr(baseDates.sort()[0]) : '\u2014';
+          return '<div style="margin-top:4px"><div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">'+city+' &middot; '+(type==='sales'?'Sales price':'Rental')+' index (Base 100 from '+baseLabel+')</div>'+svg+'<div style="margin-top:4px">'+legend+'</div></div>';
         }
 
-        h += '<div class="dropdown-filters">';
-        h += '<select id="citySel">'+[{k:'All',l:'All Cities'},{k:'Dubai',l:'Dubai'},{k:'Abu Dhabi',l:'Abu Dhabi'}].map(o=>'<option value="'+o.k+'"'+(S.cityF===o.k?' selected':'')+'>'+o.l+'</option>').join('')+'</select>';
-        h += '<select id="bedsSel">'+bedFilterOptions.map(o=>'<option value="'+o.k+'"'+(S.bedsF===o.k?' selected':'')+'>'+(o.k==='All'?'All Unit Types':o.l)+'</option>').join('')+'</select>';
-        h += '<select id="areaSel">'+allAreas.map(o=>'<option value="'+o+'"'+(S.areaF===o?' selected':'')+'>'+(o==='All'?'All Areas':o)+'</option>').join('')+'</select>';
-        h += '<select id="tierSel">'+qualityOptions.map(o=>'<option value="'+o.k+'"'+(S.tf===o.k?' selected':'')+'>'+(o.k==='All'?'All Qualities':o.l)+'</option>').join('')+'</select>';
-        h += '</div>';
-
-        const activeAreas = (S.cityF==='Abu Dhabi' ? AD_AREAS : S.cityF==='Dubai' ? DUBAI_AREAS : [...DUBAI_AREAS,...AD_AREAS]).filter(a=>allAreas.includes(a));
-        const shownAreas = S.areaExpanded ? activeAreas : activeAreas.slice(0, 10);
-        h += '<div class="areas-inline"><div class="areas-inline-row">';
-        h += '<button class="fbtn'+(S.areaF==='All'?' active':'')+'" data-areachip="All">All Areas</button>';
-        shownAreas.forEach(a=>{ h += '<button class="fbtn'+(S.areaF===a?' active':'')+'" data-areachip="'+a+'">'+a+'</button>'; });
-        if(activeAreas.length>10) h += '<button class="fbtn" id="toggleAreasBtn">'+(S.areaExpanded?'Show Less':'Show More')+'</button>';
+        h += '<div style="margin-bottom:14px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card)">';
+        h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">';
+        h += '<div class="filter-label" style="margin:0">Price Indices</div>';
+        h += '<div style="display:inline-flex;gap:4px;border-radius:999px;border:1px solid var(--border);padding:2px;background:var(--bg-row-odd);font-size:11px">';
+        h += '<button class="view-tab'+(S.indexType==='sales'?' active':'')+'" data-idxtype="sales" style="border-radius:999px;padding:4px 10px;font-size:11px">Sales</button>';
+        h += '<button class="view-tab'+(S.indexType==='rental'?' active':'')+'" data-idxtype="rental" style="border-radius:999px;padding:4px 10px;font-size:11px">Rental</button>';
         h += '</div></div>';
+        h += '<div style="display:flex;flex-wrap:wrap;gap:12px">';
+        h += '<div style="flex:1;min-width:220px">'+buildIndexChartHtml('Dubai', S.indexType)+'</div>';
+        h += '<div style="flex:1;min-width:220px">'+buildIndexChartHtml('Abu Dhabi', S.indexType)+'</div>';
+        h += '</div></div>';
+        h += '<div style="height:6px"></div>';
 
         const activeDrops = S.dropView === 'rental' ? frd : fd;
         const dropTotalPages = Math.ceil(activeDrops.length / S.PP) || 1;
@@ -669,13 +727,6 @@
         h += '<button class="view-tab'+(S.view==='listings'?' active':'')+'" data-view="listings">All Listings</button>';
         h += '</div>';
         h += '</div>';
-        if(S.view==='listings') {
-          h += '<div class="filters" style="justify-content:center">';
-          h += '<select id="confFilter"><option value="All"'+(S.confF==='All'?' selected':'')+'>All Matches</option><option value="B"'+(S.confF==='B'?' selected':'')+'>Building Only</option><option value="A"'+(S.confF==='A'?' selected':'')+'>Area Only</option></select>';
-          h += '<label style="font-size:13px;color:var(--text-muted)">Min Yield <input type="number" id="minY" value="'+S.minY+'" min="0" max="12" step="0.5" style="width:52px"/>%</label>';
-          h += '<label style="font-size:13px;color:var(--text-muted)">Max <select id="maxP">'+[500000,800000,1000000,1200000,1500000,1800000,2000000,3000000].map(v=>'<option value="'+v+'"'+(S.maxP===v?' selected':'')+'>AED '+fmt(v)+'</option>').join('')+'</select></label>';
-          h += '</div>';
-        }
 
         function ath(l,k,left) { const a=S.ask===k,ar=a?(S.asd==='desc'?'\u25BC':'\u25B2'):''; return '<th'+(left?' class="left"':'')+' data-asort="'+k+'">'+l+(ar?' <span class="sort-arrow">'+ar+'</span>':'')+'</th>'; }
         function lth(l,k,left) { const a=S.sk===k,ar=a?(S.sd==='desc'?'\u25BC':'\u25B2'):''; return '<th'+(left?' class="left"':'')+' data-lsort="'+k+'">'+l+(ar?' <span class="sort-arrow">'+ar+'</span>':'')+'</th>'; }
@@ -810,10 +861,7 @@
         const toggleAreasBtn=document.getElementById('toggleAreasBtn');if(toggleAreasBtn)toggleAreasBtn.onclick=()=>{S.areaExpanded=!S.areaExpanded;rerender();};
         document.querySelectorAll('[data-dropview]').forEach(btn=>{btn.onclick=()=>{S.dropView=btn.dataset.dropview;S.dpg=0;S.rdpg=0;rerender();};});
         document.querySelectorAll('.view-tab').forEach(btn=>{btn.onclick=()=>{const v=btn.dataset.view;if(v){S.view=v;S.pg=0;S.dpg=0;S.rdpg=0;}const it=btn.dataset.idxtype;if(it){S.indexType=it;}rerender();};});
-        document.querySelectorAll('.area-link').forEach(el=>{el.onclick=()=>{S.areaF=el.dataset.area;S.confF='All';S.minY=0;S.maxP=3000000;S.view='listings';S.pg=0;rerender();};});
-        const cF=document.getElementById('confFilter');if(cF)cF.onchange=()=>{S.confF=cF.value;S.pg=0;rerender();};
-        const mY=document.getElementById('minY');if(mY)mY.onchange=()=>{S.minY=parseFloat(mY.value)||0;S.pg=0;rerender();};
-        const mP=document.getElementById('maxP');if(mP)mP.onchange=()=>{S.maxP=parseInt(mP.value,10)||3000000;S.pg=0;rerender();};
+        document.querySelectorAll('.area-link').forEach(el=>{el.onclick=()=>{S.areaF=el.dataset.area;S.view='listings';S.pg=0;rerender();};});
         const pP=document.getElementById('prevPg');if(pP)pP.onclick=()=>{S.pg=Math.max(0,S.pg-1);rerender();};
         const nP=document.getElementById('nextPg');if(nP)nP.onclick=()=>{S.pg=Math.min(tp-1,S.pg+1);rerender();};
         const pd=document.getElementById('prevDropPg');if(pd)pd.onclick=()=>{if(S.dropView==='sales'){S.dpg=Math.max(0,S.dpg-1);}else{S.rdpg=Math.max(0,S.rdpg-1);}rerender();};
