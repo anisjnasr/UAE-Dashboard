@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>UAE Real Estate Market Scanner</title>
+  <title>UAE Real Estate Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -52,7 +52,7 @@
     .kpi-section { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; }
     .kpi-section-title { font-size: 10px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-faint); min-width: 68px; padding-top: 16px; flex-shrink: 0; }
     .kpi-section-blocks { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-    .kpis { display: flex; gap: 12px; justify-content: flex-start; flex-wrap: wrap; }
+    .kpis { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; align-items: stretch; }
     .kpi {
       background: linear-gradient(145deg, color-mix(in srgb, var(--bg-card) 98%, white), color-mix(in srgb, var(--bg-card) 95%, black));
       border: 1px solid var(--border);
@@ -64,12 +64,13 @@
       max-width: 180px;
       transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.25s;
       box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
     }
     .kpi:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-    .kpi .label { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 4px; }
+    .kpi .label { font-size: 11px; font-weight: 600; letter-spacing: 0.35px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 6px; }
     .kpi .value { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 22px; letter-spacing: -0.02em; color: var(--text-bright); line-height: 1.2; }
     .kpi .value .sub { color: var(--text-muted); font-size: 11px; font-weight: 500; margin-top: 4px; display: block; }
-    .kpi.kpi-primary .value { font-size: 26px; }
+    .kpi.kpi-primary .value { font-size: 22px; }
     .kpi.accent { border-left: 3px solid var(--accent-green); }
     .kpi.accent .value { color: var(--accent-green); }
     .kpi.red { border-left: 3px solid var(--accent-red); }
@@ -84,10 +85,11 @@
       max-width: 340px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.12);
     }
-    .kpi-range-wrap .label { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px; }
+    .kpi-range-wrap .label { font-size: 11px; font-weight: 600; letter-spacing: 0.35px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 6px; }
     .kpi-range-bar { height: 10px; border-radius: 6px; background: var(--border); position: relative; margin: 10px 0 8px 0; overflow: visible; }
-    .kpi-range-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent-blue), var(--accent-green)); opacity: 0.9; }
+    .kpi-range-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--text-dim), var(--border-active)); opacity: 0.9; }
     .kpi-range-dot { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; background: var(--text-bright); border: 3px solid var(--bg-card); transform: translate(-50%,-50%); box-shadow: 0 2px 6px rgba(0,0,0,0.25); }
+    .kpi-range-fill-rent { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--tier-m), var(--accent-blue)); opacity: 0.85; }
     .kpi-range-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; margin-top: 4px; }
     .kpi-range-avg { font-size: 14px; font-weight: 700; color: var(--text-bright); margin-top: 6px; font-family: 'IBM Plex Mono', monospace; }
     .filter-group { margin-bottom: 14px; text-align: center; }
@@ -374,6 +376,8 @@
         const T = tierColors();
         const updatedAtRaw = RAW.u || '';
         const updatedAtLabel = fmtFullDateStr(updatedAtRaw);
+        const createdRaw = RAW.c || RAW.u || '';
+        const createdLabel = createdRaw ? fmtFullDateStr(createdRaw.indexOf('T') >= 0 ? createdRaw : createdRaw + 'T00:00:00') : '\u2014';
         const AREAS = RAW.a || [];
         const LISTINGS = RAW.l.map(l => ({
           building: l[0], area: AREAS[l[1]]||'', price: l[2], sqft: l[3],
@@ -532,6 +536,12 @@
           rentBigAedDropUrl: frd.length ? frd.reduce((best,d)=>d.totalDrop>best.totalDrop?d:best,frd[0]).url : '',
           dubaiN: LISTINGS.filter(l=>l.city==='Dubai').length,
           adN: LISTINGS.filter(l=>l.city==='Abu Dhabi').length,
+          dropCount24: Number(RAW.d24) || 0,
+          rentDropCount24: Number(RAW.rd24) || 0,
+          rmin: Number(RAW.rmin) || 0,
+          rmax: Number(RAW.rmax) || 0,
+          rmed: Number(RAW.rmed) || 0,
+          mgyUrl: fl.length ? (function(){ const best = fl.reduce((b,l)=>l.grossYield>b.grossYield?l:b, fl[0]); return best.url || ''; })() : '',
         };
         const tp = Math.ceil(fl.length/S.PP)||1;
         const paged = fl.slice(S.pg*S.PP,(S.pg+1)*S.PP);
@@ -555,8 +565,8 @@
         function rerender() { render(); }
 
         let h = '<div style="max-width:1440px">';
-        h += '<h1>UAE Real Estate Market Scanner</h1>';
-        h += '<div style="text-align:center;color:var(--text-muted);font-size:12px;margin-bottom:4px">Last Updated: '+updatedAtLabel+'</div>';
+        h += '<h1>UAE Real Estate Dashboard</h1>';
+        h += '<div style="text-align:center;color:var(--text-muted);font-size:12px;margin-bottom:4px">Created: '+createdLabel+' &nbsp;&middot;&nbsp; Last Updated: '+updatedAtLabel+'</div>';
         const rentalCountLabel = RENTAL_COUNT > 0 ? RENTAL_COUNT.toLocaleString() : '\u2014';
         h += '<div class="subtitle">'+LISTINGS.length.toLocaleString()+' sale listings ('+st.dubaiN.toLocaleString()+' Dubai, '+st.adN.toLocaleString()+' Abu Dhabi) matched against '+rentalCountLabel+' rental listings (Source: Property Finder)</div>';
 
@@ -589,27 +599,34 @@
         const priceRangePct = Math.max(0, Math.min(100, priceRange * 100));
         h += '<div class="kpi-section">';
         h += '<div class="kpi-section-title">Drops</div>';
-        h += '<div class="kpi-section-blocks">';
-        h += '<div class="kpis">';
-        h += '<div class="kpi kpi-primary red"><div class="label">Price Drops</div><div class="value">'+st.dropCount.toLocaleString()+'</div><div class="value sub" style="font-size:11px;margin-top:2px">Median '+(st.medPctDrop>0?st.medPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
+        h += '<div class="kpi-section-blocks"><div class="kpis">';
+        h += '<div class="kpi red"><div class="label">Total Price Drops</div><div class="value">'+st.dropCount.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Price Drops (24hrs)</div><div class="value">'+st.dropCount24.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Median sale drop</div><div class="value">'+(st.medPctDrop>0?st.medPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
         h += '<div class="kpi red"><div class="label">Biggest %</div><div class="value">'+bigPctVal+'</div></div>';
         h += '<div class="kpi red"><div class="label">Biggest AED</div><div class="value">'+bigAedVal+'</div></div>';
-        h += '<div class="kpi kpi-primary red"><div class="label">Rental Drops</div><div class="value">'+st.rentDropCount.toLocaleString()+'</div><div class="value sub" style="font-size:11px;margin-top:2px">Median '+(st.rentMedPctDrop>0?st.rentMedPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Total Rental Drops</div><div class="value">'+st.rentDropCount.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Rental Drops (24hrs)</div><div class="value">'+st.rentDropCount24.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Median rental drop</div><div class="value">'+(st.rentMedPctDrop>0?st.rentMedPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
         h += '<div class="kpi red"><div class="label">Rental Biggest %</div><div class="value">'+rentBigPctVal+'</div></div>';
         h += '<div class="kpi red"><div class="label">Rental Biggest AED</div><div class="value">'+rentBigAedVal+'</div></div>';
-        h += '</div>';
-        h += '</div></div>';
+        h += '</div></div></div>';
+        const rentRange = st.rmax > st.rmin ? (st.rmed - st.rmin) / (st.rmax - st.rmin) : 0.5;
+        const rentRangePct = Math.max(0, Math.min(100, rentRange * 100));
         h += '<div class="kpi-section">';
         h += '<div class="kpi-section-title">Prices</div>';
         h += '<div class="kpi-section-blocks"><div class="kpis">';
         h += '<div class="kpi-range-wrap"><div class="label">Sale price range</div><div class="kpi-range-bar"><div class="kpi-range-fill" style="width:100%"></div><div class="kpi-range-dot" style="left:'+priceRangePct.toFixed(1)+'%"></div></div><div class="kpi-range-labels"><span>'+fmt(st.minP)+'</span><span>'+fmt(st.maxP_)+'</span></div><div class="kpi-range-avg">Median '+fmt(st.mp)+' AED</div></div>';
+        h += '<div class="kpi-range-wrap"><div class="label">Rental price range</div><div class="kpi-range-bar"><div class="kpi-range-fill kpi-range-fill-rent" style="width:100%"></div><div class="kpi-range-dot" style="left:'+rentRangePct.toFixed(1)+'%"></div></div><div class="kpi-range-labels"><span>'+fmt(st.rmin)+'</span><span>'+fmt(st.rmax)+'</span></div><div class="kpi-range-avg">Median '+fmt(st.rmed)+' AED/yr</div></div>';
         h += '</div></div></div>';
+        const mgyDisplay = st.mgy > 99.9 ? '99.9%+' : st.mgy.toFixed(1)+'%';
+        const mgyValHtml = st.mgyUrl ? '<a href="'+st.mgyUrl+'" target="_blank">'+mgyDisplay+'</a>' : mgyDisplay;
         h += '<div class="kpi-section">';
         h += '<div class="kpi-section-title">Yields</div>';
         h += '<div class="kpi-section-blocks"><div class="kpis">';
-        h += '<div class="kpi kpi-primary accent"><div class="label">Median Net Yield</div><div class="value">'+st.medNY.toFixed(1)+'%</div></div>';
+        h += '<div class="kpi accent"><div class="label">Median Net Yield</div><div class="value">'+st.medNY.toFixed(1)+'%</div></div>';
         h += '<div class="kpi accent"><div class="label">Median Gross Yield</div><div class="value">'+st.medGY.toFixed(1)+'%</div></div>';
-        h += '<div class="kpi"><div class="label">Max Gross Yield</div><div class="value">'+st.mgy.toFixed(1)+'%</div></div>';
+        h += '<div class="kpi accent"><div class="label">Max Gross Yield</div><div class="value">'+mgyValHtml+'</div></div>';
         h += '</div></div></div>';
         h += '<div style="height:8px"></div>';
 

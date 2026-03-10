@@ -1015,6 +1015,20 @@ def main():
             round(total_drop), round(total_drop_pct, 1), drop_count,
             first_seen or "", last_drop_date or "", city, url, tier,
         ])
+
+    # First snapshot date (data start / "created") and 24h drop counts (must run before conn.close())
+    first_snapshot_row = conn.execute(
+        "SELECT MIN(snapshot_date) FROM listing_history"
+    ).fetchone()
+    created_date = (first_snapshot_row[0] or snapshot_date).split("T")[0]
+    d24 = conn.execute(
+        "SELECT COUNT(*) FROM price_drops WHERE last_drop_date = ?",
+        (snapshot_date,),
+    ).fetchone()[0]
+    rd24 = conn.execute(
+        "SELECT COUNT(*) FROM rental_drops WHERE last_drop_date = ?",
+        (snapshot_date,),
+    ).fetchone()[0]
     conn.close()
 
     # --- Area summaries ---
@@ -1087,6 +1101,23 @@ def main():
         if area in areas
     ]
 
+    # Rental price range (annual rent from tracked rentals)
+    annual_rents = []
+    for r in rentals_for_tracking:
+        sqft = norm_sqft(r.get("sqft"))
+        if not sqft or sqft <= 0:
+            continue
+        ann = annual_rent(r.get("rent"), r.get("period"))
+        if ann is None or ann <= 0:
+            continue
+        rpsf = ann / sqft
+        if rpsf < 30 or rpsf > 300:
+            continue
+        annual_rents.append(ann)
+    rmin = int(min(annual_rents)) if annual_rents else 0
+    rmax = int(max(annual_rents)) if annual_rents else 0
+    rmed = int(median(annual_rents)) if annual_rents else 0
+
     out = {
         "a": areas,
         "l": listings_out,
@@ -1099,9 +1130,46 @@ def main():
         "rai": rai,
         "rc": rental_count,
         "u": snapshot_date,
+        "c": created_date,
+        "d24": d24,
+        "rd24": rd24,
+        "rmin": rmin,
+        "rmax": rmax,
+        "rmed": rmed,
     }
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump(out, f, separators=(",", ":"))
+
+    # Refresh summary for notification email (counts of retrieved listings by city and unit type)
+    sales_by_city = defaultdict(int)
+    sales_by_beds = defaultdict(int)
+    for s in sales:
+        city = detect_city_from_listing(s) or "Unknown"
+        beds = norm_beds(s.get("beds")) or "Unknown"
+        sales_by_city[city] += 1
+        sales_by_beds[beds] += 1
+    rentals_by_city = defaultdict(int)
+    rentals_by_beds = defaultdict(int)
+    for r in rentals_for_tracking:
+        city = detect_city_from_listing(r) or "Unknown"
+        beds = norm_beds(r.get("beds")) or "Unknown"
+        rentals_by_city[city] += 1
+        rentals_by_beds[beds] += 1
+    refresh_summary = {
+        "sales": {
+            "by_city": dict(sales_by_city),
+            "by_unit_type": dict(sales_by_beds),
+            "total": len(sales),
+        },
+        "rentals": {
+            "by_city": dict(rentals_by_city),
+            "by_unit_type": dict(rentals_by_beds),
+            "total": len(rentals_for_tracking),
+        },
+    }
+    summary_path = DATA_DIR / "refresh_summary.json"
+    with open(summary_path, "w", encoding="utf-8") as f:
+        json.dump(refresh_summary, f, indent=2)
 
     # Stats
     city_counts = defaultdict(int)
