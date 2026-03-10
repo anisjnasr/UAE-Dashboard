@@ -344,16 +344,31 @@
           rpsf: d[2] ? Math.round(d[7]/d[2]) : 0
         }));
 
+        const PRICE_INDEX = (RAW.pi||[]).map(p => ({
+          city: p[0], beds: p[1], t: p[2], v: p[3]
+        }));
+        const PRICE_AREA_INDEX = (RAW.pai||[]).map(p => ({
+          city: p[0], area: AREAS[p[1]]||'', beds: p[2], t: p[3], v: p[4]
+        }));
+        const RENT_INDEX = (RAW.ri||[]).map(p => ({
+          city: p[0], beds: p[1], t: p[2], v: p[3]
+        }));
+        const RENT_AREA_INDEX = (RAW.rai||[]).map(p => ({
+          city: p[0], area: AREAS[p[1]]||'', beds: p[2], t: p[3], v: p[4]
+        }));
+
         const S = window.dashState = window.dashState || {
           tf:'All', areaF:'All', cityF:'All', bedsF:'All',
           view:'listings', confF:'All',
           minY:0, maxP:2000000, pg:0, dpg:0, rdpg:0,
           sk:'netYield', sd:'desc', ask:'avgNY', asd:'desc',
           dsk:'totalDropPct', dsd:'desc', PP:50,
-          dropView:'sales', areaExpanded:false
+          dropView:'sales', areaExpanded:false,
+          indexType:'sales'
         };
         if (!['areas','listings'].includes(S.view)) S.view = 'listings';
         if (!['sales','rental'].includes(S.dropView)) S.dropView = 'sales';
+        if (!['sales','rental'].includes(S.indexType)) S.indexType = 'sales';
 
         let fl = LISTINGS;
         if (S.cityF !== 'All') fl = fl.filter(l => l.city === S.cityF);
@@ -492,7 +507,22 @@
         h += '<div class="kpi accent"><div class="label">Avg Net Yield</div><div class="value">'+st.any_.toFixed(1)+'%</div></div>';
         h += '<div class="kpi"><div class="label">Max Gross Yield</div><div class="value">'+st.mgy.toFixed(1)+'%</div></div>';
         h += '</div>';
-        h += '<div style="height:10px"></div>';
+        h += '<div style="height:8px"></div>';
+
+        h += '<div style="margin-bottom:14px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card)">';
+        h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">';
+        h += '<div class="filter-label" style="margin:0">Price Indices</div>';
+        h += '<div style="display:inline-flex;gap:4px;border-radius:999px;border:1px solid var(--border);padding:2px;background:var(--bg-row-odd);font-size:11px">';
+        h += '<button class="view-tab'+(S.indexType==='sales'?' active':'')+'" data-idxtype="sales" style="border-radius:999px;padding:4px 10px;font-size:11px">Sales</button>';
+        h += '<button class="view-tab'+(S.indexType==='rental'?' active':'')+'" data-idxtype="rental" style="border-radius:999px;padding:4px 10px;font-size:11px">Rental</button>';
+        h += '</div></div>';
+        if (S.cityF === 'All') {
+          h += '<div style="font-size:12.5px;color:var(--text-muted);margin-top:2px">Select a city above to see its studio / 1BR / 2BR index over time.</div>';
+        } else {
+          h += buildIndexChartHtml(S.cityF, S.indexType);
+        }
+        h += '</div>';
+        h += '<div style="height:6px"></div>';
 
         const tierAreas = {P:[],E:[],M:[],X:[]};
         SUMMARIES.forEach(s => { if(tierAreas[s.tier]) tierAreas[s.tier].push(s.name); });
@@ -503,6 +533,67 @@
           M:'Affordable communities that are functional but may have mixed maintenance and build quality. Areas: '+(tierAreas.M.join(', ')||'none')+'.',
           X:'Budget areas typically far from center with lower demand. Areas: '+(tierAreas.X.join(', ')||'none')+'.'
         };
+
+        function buildIndexChartHtml(city, type) {
+          const src = type==='sales' ? PRICE_INDEX : RENT_INDEX;
+          const rows = src.filter(r => r.city === city);
+          if (!rows.length) {
+            return '<div style="padding:10px 0;color:var(--text-muted);font-size:13px">Not enough data yet to build a '+(type==='sales'?'sales':'rental')+' index for '+city+'.</div>';
+          }
+          const byBeds = {};
+          rows.forEach(r => {
+            if (!byBeds[r.beds]) byBeds[r.beds] = [];
+            byBeds[r.beds].push({t:r.t, v:r.v});
+          });
+          const bedOrder = ['Studio','1BR','2BR'];
+          const series = bedOrder.map(b => ({beds:b, pts:(byBeds[b]||[]).slice().sort((a,b)=>a.t.localeCompare(b.t))})).filter(s => s.pts.length);
+          if (!series.length) {
+            return '<div style="padding:10px 0;color:var(--text-muted);font-size:13px">No index points for current unit types.</div>';
+          }
+          let minV = Infinity, maxV = -Infinity;
+          series.forEach(s => s.pts.forEach(p => {
+            if (p.v < minV) minV = p.v;
+            if (p.v > maxV) maxV = p.v;
+          }));
+          if (!isFinite(minV) || !isFinite(maxV)) {
+            return '<div style="padding:10px 0;color:var(--text-muted);font-size:13px">Index data unavailable.</div>';
+          }
+          const padding = 6;
+          const height = 60;
+          const width = 180;
+          const span = maxV - minV || 1;
+          function yVal(v){ return padding + (height - 2*padding) * (1 - (v - minV) / span); }
+          function xVal(idx, n){ if(n<=1) return width/2; const left=padding, right=width-padding; return left + (right-left)*(idx/(n-1)); }
+          const colors = {'Studio':'var(--accent-green)','1BR':'var(--accent-blue)','2BR':'var(--tier-m)'};
+          let svg = '<svg viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none" style="width:100%;height:120px;background:transparent">';
+          const base = 100;
+          if (minV<=base && base<=maxV) {
+            const yb = yVal(base);
+            svg += '<line x1="'+padding+'" y1="'+yb.toFixed(1)+'" x2="'+(width-padding)+'" y2="'+yb.toFixed(1)+'" stroke="var(--sep)" stroke-dasharray="2,2" stroke-width="0.8"/>';
+          }
+          series.forEach(s => {
+            const pts = s.pts;
+            if (!pts.length) return;
+            const n = pts.length;
+            let d = '';
+            pts.forEach((p,i) => {
+              const x = xVal(i,n);
+              const y = yVal(p.v);
+              d += (i===0?'M':'L')+x.toFixed(1)+' '+y.toFixed(1)+' ';
+            });
+            svg += '<path d="'+d.trim()+'" fill="none" stroke="'+(colors[s.beds]||'var(--accent-blue)')+'" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>';
+          });
+          svg += '</svg>';
+          const latest = {};
+          series.forEach(s => { latest[s.beds] = s.pts[s.pts.length-1].v; });
+          const legend = bedOrder.filter(b=>latest[b]!=null).map(b => {
+            const val = latest[b];
+            const ch = (val-100).toFixed(1);
+            const sign = val>=100?'+':'';
+            return '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:11.5px;color:var(--text-muted)"><span style="width:10px;height:10px;border-radius:999px;background:'+(colors[b]||'var(--accent-blue)')+'"></span><span>'+b+':</span><span style="color:'+(val>=100?'var(--accent-green)':'var(--accent-red)')+'">'+val.toFixed(1)+'</span><span style="color:var(--text-dim)">('+sign+ch+' from 100)</span></span>';
+          }).join('');
+          return '<div style="margin-top:4px"><div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">'+city+' &middot; '+(type==='sales'?'Sales price':'Rental')+' index (100 = first snapshot)</div>'+svg+'<div style="margin-top:4px">'+legend+'</div></div>';
+        }
 
         h += '<div class="dropdown-filters">';
         h += '<select id="citySel">'+[{k:'All',l:'All Cities'},{k:'Dubai',l:'Dubai'},{k:'Abu Dhabi',l:'Abu Dhabi'}].map(o=>'<option value="'+o.k+'"'+(S.cityF===o.k?' selected':'')+'>'+o.l+'</option>').join('')+'</select>';
@@ -697,7 +788,7 @@
         document.querySelectorAll('[data-areachip]').forEach(btn=>{btn.onclick=()=>{S.areaF=btn.dataset.areachip;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
         const toggleAreasBtn=document.getElementById('toggleAreasBtn');if(toggleAreasBtn)toggleAreasBtn.onclick=()=>{S.areaExpanded=!S.areaExpanded;rerender();};
         document.querySelectorAll('[data-dropview]').forEach(btn=>{btn.onclick=()=>{S.dropView=btn.dataset.dropview;S.dpg=0;S.rdpg=0;rerender();};});
-        document.querySelectorAll('.view-tab').forEach(btn=>{btn.onclick=()=>{S.view=btn.dataset.view;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
+        document.querySelectorAll('.view-tab').forEach(btn=>{btn.onclick=()=>{const v=btn.dataset.view;if(v){S.view=v;S.pg=0;S.dpg=0;S.rdpg=0;}const it=btn.dataset.idxtype;if(it){S.indexType=it;}rerender();};});
         document.querySelectorAll('.area-link').forEach(el=>{el.onclick=()=>{S.areaF=el.dataset.area;S.confF='All';S.minY=0;S.maxP=3000000;S.view='listings';S.pg=0;rerender();};});
         const cF=document.getElementById('confFilter');if(cF)cF.onchange=()=>{S.confF=cF.value;S.pg=0;rerender();};
         const mY=document.getElementById('minY');if(mY)mY.onchange=()=>{S.minY=parseFloat(mY.value)||0;S.pg=0;rerender();};

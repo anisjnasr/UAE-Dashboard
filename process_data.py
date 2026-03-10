@@ -379,6 +379,22 @@ def init_db(db_path):
         conn.execute("SELECT city FROM price_drops LIMIT 1")
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE price_drops ADD COLUMN city TEXT DEFAULT 'Dubai'")
+    conn.execute("""CREATE TABLE IF NOT EXISTS price_index (
+        city TEXT NOT NULL,
+        area TEXT,
+        beds TEXT NOT NULL,
+        snapshot_date TEXT NOT NULL,
+        level TEXT NOT NULL,
+        index_value REAL NOT NULL,
+        PRIMARY KEY (city, area, beds, snapshot_date, level))""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS rental_index (
+        city TEXT NOT NULL,
+        area TEXT,
+        beds TEXT NOT NULL,
+        snapshot_date TEXT NOT NULL,
+        level TEXT NOT NULL,
+        index_value REAL NOT NULL,
+        PRIMARY KEY (city, area, beds, snapshot_date, level))""")
     try:
         conn.execute("SELECT period FROM rental_history LIMIT 1")
     except sqlite3.OperationalError:
@@ -557,6 +573,191 @@ def load_all_rental_drops(conn):
         FROM rental_drops WHERE total_drop > 0 ORDER BY total_drop_pct DESC""").fetchall()
 
 
+def compute_price_indices(conn, min_city_n=20, min_area_n=5):
+    """
+    Build chained price indices (base = 100 at first snapshot with enough data)
+    using median sale price per sqft, at both city and area level.
+    """
+    cur = conn.execute(
+        "SELECT city, area, beds, snapshot_date, price, sqft "
+        "FROM listing_history "
+        "WHERE sqft IS NOT NULL AND sqft > 0 AND price IS NOT NULL AND price > 0 "
+        "AND beds IN ('Studio', '1BR', '2BR')"
+    )
+    city_points = defaultdict(list)   # (city, beds, snapshot_date) -> [psf...]
+    area_points = defaultdict(list)   # (city, area, beds, snapshot_date) -> [psf...]
+    for city, area, beds, snap, price, sqft in cur:
+        if not city or not beds or not snap or not sqft or not price:
+            continue
+        try:
+            psf = float(price) / float(sqft)
+        except (TypeError, ValueError, ZeroDivisionError):
+            continue
+        if psf <= 0:
+            continue
+        key_city = (city, beds, snap)
+        key_area = (city, (area or "Other"), beds, snap)
+        city_points[key_city].append(psf)
+        area_points[key_area].append(psf)
+
+    # Aggregate to medians per snapshot
+    city_medians = defaultdict(dict)  # (city, beds) -> {snapshot_date: median_psf}
+    for (city, beds, snap), vals in city_points.items():
+        if len(vals) < min_city_n:
+            continue
+        city_medians[(city, beds)][snap] = median(vals)
+
+    area_medians = defaultdict(dict)  # (city, area, beds) -> {snapshot_date: median_psf}
+    for (city, area, beds, snap), vals in area_points.items():
+        if len(vals) < min_area_n:
+            continue
+        area_medians[(city, area, beds)][snap] = median(vals)
+
+    city_index_rows = []  # (city, beds, snapshot_date, index_value)
+    area_index_rows = []  # (city, area, beds, snapshot_date, index_value)
+
+    # Clear and rebuild index tables
+    conn.execute("DELETE FROM price_index")
+
+    for (city, beds), snap_map in city_medians.items():
+        snaps = sorted(snap_map.keys())
+        if not snaps:
+            continue
+        base_snap = snaps[0]
+        base_med = snap_map[base_snap]
+        if not base_med or base_med <= 0:
+            continue
+        for snap in snaps:
+            m = snap_map[snap]
+            if not m or m <= 0:
+                continue
+            idx_val = (m / base_med) * 100.0
+            city_index_rows.append((city, beds, snap, idx_val))
+            conn.execute(
+                "INSERT OR REPLACE INTO price_index "
+                "(city, area, beds, snapshot_date, level, index_value) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (city, "", beds, snap, "city", idx_val),
+            )
+
+    for (city, area, beds), snap_map in area_medians.items():
+        snaps = sorted(snap_map.keys())
+        if not snaps:
+            continue
+        base_snap = snaps[0]
+        base_med = snap_map[base_snap]
+        if not base_med or base_med <= 0:
+            continue
+        for snap in snaps:
+            m = snap_map[snap]
+            if not m or m <= 0:
+                continue
+            idx_val = (m / base_med) * 100.0
+            area_index_rows.append((city, area, beds, snap, idx_val))
+            conn.execute(
+                "INSERT OR REPLACE INTO price_index "
+                "(city, area, beds, snapshot_date, level, index_value) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (city, area, beds, snap, "area", idx_val),
+            )
+
+    conn.commit()
+    return city_index_rows, area_index_rows
+
+
+def compute_rental_indices(conn, min_city_n=20, min_area_n=5):
+    """
+    Build chained rental indices (base = 100 at first snapshot with enough data)
+    using median annual rent per sqft, at both city and area level.
+    """
+    cur = conn.execute(
+        "SELECT city, area, beds, snapshot_date, annual_rent, sqft "
+        "FROM rental_history "
+        "WHERE sqft IS NOT NULL AND sqft > 0 AND annual_rent IS NOT NULL AND annual_rent > 0 "
+        "AND beds IN ('Studio', '1BR', '2BR')"
+    )
+    city_points = defaultdict(list)   # (city, beds, snapshot_date) -> [rpsf...]
+    area_points = defaultdict(list)   # (city, area, beds, snapshot_date) -> [rpsf...]
+    for city, area, beds, snap, rent, sqft in cur:
+        if not city or not beds or not snap or not sqft or not rent:
+            continue
+        try:
+            rpsf = float(rent) / float(sqft)
+        except (TypeError, ValueError, ZeroDivisionError):
+            continue
+        if rpsf <= 0:
+            continue
+        # Keep only reasonable rent/sqft to avoid extreme noise
+        if rpsf < 30 or rpsf > 300:
+            continue
+        key_city = (city, beds, snap)
+        key_area = (city, (area or "Other"), beds, snap)
+        city_points[key_city].append(rpsf)
+        area_points[key_area].append(rpsf)
+
+    city_medians = defaultdict(dict)  # (city, beds) -> {snapshot_date: median_rpsf}
+    for (city, beds, snap), vals in city_points.items():
+        if len(vals) < min_city_n:
+            continue
+        city_medians[(city, beds)][snap] = median(vals)
+
+    area_medians = defaultdict(dict)  # (city, area, beds) -> {snapshot_date: median_rpsf}
+    for (city, area, beds, snap), vals in area_points.items():
+        if len(vals) < min_area_n:
+            continue
+        area_medians[(city, area, beds)][snap] = median(vals)
+
+    city_index_rows = []  # (city, beds, snapshot_date, index_value)
+    area_index_rows = []  # (city, area, beds, snapshot_date, index_value)
+
+    conn.execute("DELETE FROM rental_index")
+
+    for (city, beds), snap_map in city_medians.items():
+        snaps = sorted(snap_map.keys())
+        if not snaps:
+            continue
+        base_snap = snaps[0]
+        base_med = snap_map[base_snap]
+        if not base_med or base_med <= 0:
+            continue
+        for snap in snaps:
+            m = snap_map[snap]
+            if not m or m <= 0:
+                continue
+            idx_val = (m / base_med) * 100.0
+            city_index_rows.append((city, beds, snap, idx_val))
+            conn.execute(
+                "INSERT OR REPLACE INTO rental_index "
+                "(city, area, beds, snapshot_date, level, index_value) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (city, "", beds, snap, "city", idx_val),
+            )
+
+    for (city, area, beds), snap_map in area_medians.items():
+        snaps = sorted(snap_map.keys())
+        if not snaps:
+            continue
+        base_snap = snaps[0]
+        base_med = snap_map[base_snap]
+        if not base_med or base_med <= 0:
+            continue
+        for snap in snaps:
+            m = snap_map[snap]
+            if not m or m <= 0:
+                continue
+            idx_val = (m / base_med) * 100.0
+            area_index_rows.append((city, area, beds, snap, idx_val))
+            conn.execute(
+                "INSERT OR REPLACE INTO rental_index "
+                "(city, area, beds, snapshot_date, level, index_value) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (city, area, beds, snap, "area", idx_val),
+            )
+
+    conn.commit()
+    return city_index_rows, area_index_rows
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -634,6 +835,10 @@ def main():
     # --- SQLite ---
     snapshot_date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     conn = init_db(DB_PATH)
+    price_city_idx = []
+    price_area_idx = []
+    rental_city_idx = []
+    rental_area_idx = []
     stored = store_snapshot(conn, sales, snapshot_date)
     print(f"Stored {stored} in snapshot {snapshot_date}")
     n_snap = conn.execute("SELECT COUNT(DISTINCT snapshot_date) FROM listing_history").fetchone()[0]
@@ -648,6 +853,20 @@ def main():
     if n_rental_snap >= 2:
         rental_drops_found = compute_rental_drops(conn, snapshot_date)
         print(f"Rental drops detected: {rental_drops_found}")
+
+    # --- Price/rental indices (city + area level) ---
+    try:
+        price_city_idx, price_area_idx = compute_price_indices(conn)
+        print(f"Computed {len(price_city_idx)} city-level price index points and {len(price_area_idx)} area-level price index points")
+    except Exception as exc:
+        print(f"Failed to compute price indices: {exc}")
+        price_city_idx, price_area_idx = [], []
+    try:
+        rental_city_idx, rental_area_idx = compute_rental_indices(conn)
+        print(f"Computed {len(rental_city_idx)} city-level rental index points and {len(rental_area_idx)} area-level rental index points")
+    except Exception as exc:
+        print(f"Failed to compute rental indices: {exc}")
+        rental_city_idx, rental_area_idx = [], []
 
     # --- Build rental indexes ---
     by_building = defaultdict(list)
@@ -848,12 +1067,36 @@ def main():
             round(avg_gy, 1), round(avg_ny, 1), sc_psf, tier, med_rpsf, area_city,
         ])
 
+    # --- Compact index payloads for dashboard ---
+    pi = [
+        [city, beds, snap, round(idx_val, 1)]
+        for (city, beds, snap, idx_val) in price_city_idx
+    ]
+    pai = [
+        [city, areas.index(area) if area in areas else 0, beds, snap, round(idx_val, 1)]
+        for (city, area, beds, snap, idx_val) in price_area_idx
+        if area in areas
+    ]
+    ri = [
+        [city, beds, snap, round(idx_val, 1)]
+        for (city, beds, snap, idx_val) in rental_city_idx
+    ]
+    rai = [
+        [city, areas.index(area) if area in areas else 0, beds, snap, round(idx_val, 1)]
+        for (city, area, beds, snap, idx_val) in rental_area_idx
+        if area in areas
+    ]
+
     out = {
         "a": areas,
         "l": listings_out,
         "s": summaries_out,
         "d": drops_out,
         "rd": rental_drops_out,
+        "pi": pi,
+        "pai": pai,
+        "ri": ri,
+        "rai": rai,
         "u": snapshot_date,
     }
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
