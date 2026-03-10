@@ -50,8 +50,8 @@
     h1 { font-size: 26px; font-weight: 700; color: var(--text-bright); margin: 0 0 4px 0; letter-spacing: -0.3px; text-align: center; }
     .subtitle { color: var(--text-muted); font-size: 14px; margin-bottom: 18px; line-height: 1.5; text-align: center; }
     .kpi-section { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; }
-    .kpi-section-title { font-size: 10px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-faint); min-width: 68px; padding-top: 16px; flex-shrink: 0; }
-    .kpi-section-blocks { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .kpi-section-title { display: none; }
+    .kpi-section-blocks { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; width: 100%; }
     .kpis { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; align-items: stretch; }
     .kpi {
       background: linear-gradient(145deg, color-mix(in srgb, var(--bg-card) 98%, white), color-mix(in srgb, var(--bg-card) 95%, black));
@@ -87,9 +87,9 @@
     }
     .kpi-range-wrap .label { font-size: 11px; font-weight: 600; letter-spacing: 0.35px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 6px; }
     .kpi-range-bar { height: 10px; border-radius: 6px; background: var(--border); position: relative; margin: 10px 0 8px 0; overflow: visible; }
-    .kpi-range-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--text-dim), var(--border-active)); opacity: 0.9; }
+    .kpi-range-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent-green), color-mix(in srgb, var(--accent-green) 75%, black)); opacity: 0.9; }
     .kpi-range-dot { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; background: var(--text-bright); border: 3px solid var(--bg-card); transform: translate(-50%,-50%); box-shadow: 0 2px 6px rgba(0,0,0,0.25); }
-    .kpi-range-fill-rent { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--tier-m), var(--accent-blue)); opacity: 0.85; }
+    .kpi-range-fill-rent { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent-blue), color-mix(in srgb, var(--accent-blue) 75%, black)); opacity: 0.85; }
     .kpi-range-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; margin-top: 4px; }
     .kpi-range-avg { font-size: 14px; font-weight: 700; color: var(--text-bright); margin-top: 6px; font-family: 'IBM Plex Mono', monospace; }
     .filter-group { margin-bottom: 14px; text-align: center; }
@@ -670,10 +670,10 @@
           const paddingLeft = 2;
           const paddingRight = 4;
           const paddingVert = 6;
-          const chartW = 200;
-          const axisW = 38;
+          const chartW = 320;
+          const axisW = 52;
           const totalW = chartW + axisW;
-          const height = 80;
+          const height = 88;
           const span = maxV - minV || 1;
           const topP = paddingVert;
           const bottomP = height - paddingVert;
@@ -682,7 +682,7 @@
           function yVal(v){ return topP + plotH * (1 - (v - minV) / span); }
           function xVal(idx, n){ if(n<=1) return paddingLeft + plotW/2; return paddingLeft + plotW * (idx / Math.max(1, n-1)); }
           const colors = {'Studio':'var(--accent-green)','1BR':'var(--accent-blue)','2BR':'var(--tier-m)'};
-          let svg = '<svg viewBox="0 0 '+totalW+' '+height+'" preserveAspectRatio="xMinYMid meet" style="width:100%;height:140px;background:transparent">';
+          let svg = '<svg viewBox="0 0 '+totalW+' '+height+'" preserveAspectRatio="xMinYMid meet" style="width:100%;height:150px;background:transparent">';
           if (minV<=base && base<=maxV) {
             const yb = yVal(base);
             svg += '<line x1="'+paddingLeft+'" y1="'+yb.toFixed(1)+'" x2="'+(chartW-paddingRight)+'" y2="'+yb.toFixed(1)+'" stroke="var(--accent-blue)" stroke-dasharray="4,2" stroke-width="1.2" opacity="0.7"/>';
@@ -700,6 +700,14 @@
             const isStudio = s.beds === 'Studio';
             svg += '<path d="'+d.trim()+'" fill="none" stroke="'+(colors[s.beds]||'var(--accent-blue)')+'" stroke-width="'+(isStudio?'1.8':'1.6')+'" stroke-linejoin="round" stroke-linecap="round"'+(isStudio?' stroke-dasharray="5,3"':'')+'/>';
           });
+          const axisX = chartW + 4;
+          const lineLabelFontSize = 8;
+          const lineLabelDy = 3.2;
+          series.forEach(s => {
+            const lastV = s.pts[s.pts.length-1].v;
+            const y = yVal(lastV);
+            svg += '<text x="'+axisX+'" y="'+(y+lineLabelDy)+'" fill="'+(colors[s.beds]||'var(--accent-blue)')+'" font-size="'+lineLabelFontSize+'" font-weight="600" text-anchor="start">'+lastV.toFixed(1)+'</text>';
+          });
           const allVals = [];
           series.forEach(s => s.pts.forEach(p => allVals.push(p.v)));
           const minD = allVals.length ? Math.min(...allVals) - base : 0;
@@ -710,7 +718,7 @@
           if (tickDeltas.indexOf(0) === -1) tickDeltas.push(0);
           tickDeltas.sort((a,b)=>a-b);
           const minGap = 22;
-          const axisX = chartW + 2;
+          const tickAxisX = chartW + 2;
           let lastY = -999;
           tickDeltas.forEach(d => {
             if (!isFinite(d)) return;
@@ -720,7 +728,7 @@
             if (Math.abs(y - lastY) < minGap) return;
             lastY = y;
             const label = (d>0?'+':'')+d.toFixed(0)+'%';
-            svg += '<text x="'+axisX+'" y="'+(y+3.5).toFixed(1)+'" fill="var(--text-dim)" font-size="10" font-weight="500" text-anchor="start">'+label+'</text>';
+            svg += '<text x="'+tickAxisX+'" y="'+(y+3.5).toFixed(1)+'" fill="var(--text-dim)" font-size="10" font-weight="500" text-anchor="start">'+label+'</text>';
           });
           svg += '</svg>';
           const latest = {};
