@@ -68,13 +68,16 @@
     }
     .kpi:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
     .kpi .label { font-size: 11px; font-weight: 600; letter-spacing: 0.35px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 6px; }
-    .kpi .value { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 22px; letter-spacing: -0.02em; color: var(--text-bright); line-height: 1.2; }
+    .kpi .value { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 22px; letter-spacing: -0.02em; color: var(--text-bright); line-height: 1.2; display: flex; align-items: center; justify-content: center; min-height: 1.5em; }
     .kpi .value .sub { color: var(--text-muted); font-size: 11px; font-weight: 500; margin-top: 4px; display: block; }
+    .kpi .value a { display: inline-block; vertical-align: middle; line-height: 1.2; color: inherit; text-decoration: none; border-bottom: 1px dotted var(--link-border); }
     .kpi.kpi-primary .value { font-size: 22px; }
     .kpi.accent { border-left: 3px solid var(--accent-green); }
     .kpi.accent .value { color: var(--accent-green); }
     .kpi.red { border-left: 3px solid var(--accent-red); }
     .kpi.red .value { color: var(--accent-red); }
+    .kpi.red .value.kpi-zero { color: var(--text-dim); }
+    .kpi.red .value.kpi-zero a { color: var(--text-dim); }
     .kpi-range-wrap {
       background: linear-gradient(145deg, color-mix(in srgb, var(--bg-card) 98%, white), color-mix(in srgb, var(--bg-card) 95%, black));
       border: 1px solid var(--border);
@@ -95,8 +98,10 @@
     .filter-group { margin-bottom: 14px; text-align: center; }
     .filter-label { font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 7px; }
     .filter-row { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; justify-content: center; }
-    .kpi .value a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--link-border); }
     .kpi .value a:hover { color: var(--accent-blue); border-color: var(--accent-blue); }
+    .kpi-drops-group { display: flex; gap: 24px; margin-bottom: 16px; flex-wrap: wrap; }
+    .kpi-drops-block { flex: 1; min-width: 320px; display: flex; flex-direction: column; gap: 10px; }
+    .kpi-drops-title { font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); text-align: center; margin-bottom: 2px; }
     .fbtn { padding: 6px 16px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text-muted); white-space: nowrap; transition: background 0.15s, border-color 0.15s, color 0.15s; }
     .fbtn.active { color: var(--text-bright); background: var(--btn-active-bg); border-color: var(--border-active); }
     .view-tabs { display: flex; gap: 2px; background: var(--bg-card); border-radius: 6px; padding: 3px; border: 1px solid var(--border); }
@@ -597,19 +602,25 @@
 
         const priceRange = st.maxP_ > st.minP ? (st.mp - st.minP) / (st.maxP_ - st.minP) : 0.5;
         const priceRangePct = Math.max(0, Math.min(100, priceRange * 100));
-        h += '<div class="kpi-section">';
-        h += '<div class="kpi-section-title">Drops</div>';
-        h += '<div class="kpi-section-blocks"><div class="kpis">';
-        h += '<div class="kpi red"><div class="label">Total Price Drops</div><div class="value">'+st.dropCount.toLocaleString()+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Price Drops (24hrs)</div><div class="value">'+st.dropCount24.toLocaleString()+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Median sale drop</div><div class="value">'+(st.medPctDrop>0?st.medPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Biggest %</div><div class="value">'+bigPctVal+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Biggest AED</div><div class="value">'+bigAedVal+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Total Rental Drops</div><div class="value">'+st.rentDropCount.toLocaleString()+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Rental Drops (24hrs)</div><div class="value">'+st.rentDropCount24.toLocaleString()+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Median rental drop</div><div class="value">'+(st.rentMedPctDrop>0?st.rentMedPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Rental Biggest %</div><div class="value">'+rentBigPctVal+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Rental Biggest AED</div><div class="value">'+rentBigAedVal+'</div></div>';
+        const valClass = v => (v === 0 ? 'value kpi-zero' : 'value');
+        h += '<div class="kpi-drops-group">';
+        h += '<div class="kpi-drops-block">';
+        h += '<div class="kpi-drops-title">Sale Prices</div>';
+        h += '<div class="kpis">';
+        h += '<div class="kpi red"><div class="label">Drops (24hrs)</div><div class="'+valClass(st.dropCount24)+'">'+st.dropCount24.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Total Drops</div><div class="value">'+st.dropCount.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Median Drop</div><div class="value">'+(st.medPctDrop>0?st.medPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Largest Drop (%)</div><div class="value">'+bigPctVal+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Largest Drop (AED)</div><div class="value">'+bigAedVal+'</div></div>';
+        h += '</div></div>';
+        h += '<div class="kpi-drops-block">';
+        h += '<div class="kpi-drops-title">Rental Rates</div>';
+        h += '<div class="kpis">';
+        h += '<div class="kpi red"><div class="label">Drops (24hrs)</div><div class="'+valClass(st.rentDropCount24)+'">'+st.rentDropCount24.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Total Drops</div><div class="value">'+st.rentDropCount.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Median Drop</div><div class="value">'+(st.rentMedPctDrop>0?st.rentMedPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Largest Drop (%)</div><div class="value">'+rentBigPctVal+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Largest Drop (AED)</div><div class="value">'+rentBigAedVal+'</div></div>';
         h += '</div></div></div>';
         const rentRange = st.rmax > st.rmin ? (st.rmed - st.rmin) / (st.rmax - st.rmin) : 0.5;
         const rentRangePct = Math.max(0, Math.min(100, rentRange * 100));
