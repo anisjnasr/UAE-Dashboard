@@ -705,8 +705,10 @@
           const lineLabelDy = 3.2;
           series.forEach(s => {
             const lastV = s.pts[s.pts.length-1].v;
+            const pctChg = (lastV / 100 - 1) * 100;
+            const pctStr = (pctChg >= 0 ? '+' : '') + pctChg.toFixed(1) + '%';
             const y = yVal(lastV);
-            svg += '<text x="'+axisX+'" y="'+(y+lineLabelDy)+'" fill="'+(colors[s.beds]||'var(--accent-blue)')+'" font-size="'+lineLabelFontSize+'" font-weight="600" text-anchor="start">'+lastV.toFixed(1)+'</text>';
+            svg += '<text x="'+axisX+'" y="'+(y+lineLabelDy)+'" fill="'+(colors[s.beds]||'var(--accent-blue)')+'" font-size="'+lineLabelFontSize+'" font-weight="600" text-anchor="start">'+pctStr+'</text>';
           });
           const allVals = [];
           series.forEach(s => s.pts.forEach(p => allVals.push(p.v)));
@@ -735,9 +737,9 @@
           series.forEach(s => { latest[s.beds] = s.pts[s.pts.length-1].v; });
           const legend = bedOrder.filter(b=>latest[b]!=null).map(b => {
             const val = latest[b];
-            const ch = (val-100).toFixed(1);
-            const sign = val>=100?'+':'';
-            return '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:11.5px;color:var(--text-muted)"><span style="width:10px;height:10px;border-radius:999px;background:'+(colors[b]||'var(--accent-blue)')+'"></span><span>'+b+':</span><span style="color:'+(val>=100?'var(--accent-green)':'var(--accent-red)')+'">'+val.toFixed(1)+'</span><span style="color:var(--text-dim)">('+sign+ch+'%)</span></span>';
+            const pctChg = (val / 100 - 1) * 100;
+            const pctStr = (pctChg >= 0 ? '+' : '') + pctChg.toFixed(1) + '%';
+            return '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:11.5px;color:var(--text-muted)"><span style="width:10px;height:10px;border-radius:999px;background:'+(colors[b]||'var(--accent-blue)')+'"></span><span>'+b+':</span><span style="color:'+(pctChg>=0?'var(--accent-green)':'var(--accent-red)')+'">'+pctStr+'</span></span>';
           }).join('');
           const baseDates = [];
           series.forEach(s => { if (s.pts.length) baseDates.push(s.pts[0].t); });
