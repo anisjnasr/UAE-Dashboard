@@ -834,6 +834,7 @@ def main():
 
     # --- SQLite ---
     snapshot_date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    rental_count = len(rentals_for_tracking)
     conn = init_db(DB_PATH)
     price_city_idx = []
     price_area_idx = []
@@ -1097,6 +1098,7 @@ def main():
         "pai": pai,
         "ri": ri,
         "rai": rai,
+        "rc": rental_count,
         "u": snapshot_date,
     }
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:

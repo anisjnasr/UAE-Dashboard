@@ -304,16 +304,34 @@
       }
       function pct(x) { return (x == null || isNaN(x)) ? '\u2014' : Number(x).toFixed(1) + '%'; }
 
+      function fmtFullDateStr(s) {
+        if (!s) return '\u2014';
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return s;
+        const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const day = d.getDate();
+        const monthName = months[d.getMonth()];
+        const year = d.getFullYear();
+        return day + ' ' + monthName + ' ' + year;
+      }
+
+      function fmtShortDateStr(s) {
+        if (!s) return '\u2014';
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return s;
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const day = d.getDate();
+        const monthName = months[d.getMonth()];
+        const year = d.getFullYear();
+        return day + '-' + monthName + '-' + year;
+      }
+
       function render() {
         const RAW = window.RAW;
         if (!RAW || !RAW.l) { document.getElementById('root').innerHTML = '<div style="color:var(--accent-red);font-size:15px">Failed to load data.</div>'; return; }
         const T = tierColors();
         const updatedAtRaw = RAW.u || '';
-        let updatedAtLabel = '\u2014';
-        if (updatedAtRaw) {
-          const dt = new Date(updatedAtRaw);
-          updatedAtLabel = isNaN(dt.getTime()) ? updatedAtRaw : dt.toLocaleString();
-        }
+        const updatedAtLabel = fmtFullDateStr(updatedAtRaw);
         const AREAS = RAW.a || [];
         const LISTINGS = RAW.l.map(l => ({
           building: l[0], area: AREAS[l[1]]||'', price: l[2], sqft: l[3],
@@ -356,6 +374,8 @@
         const RENT_AREA_INDEX = (RAW.rai||[]).map(p => ({
           city: p[0], area: AREAS[p[1]]||'', beds: p[2], t: p[3], v: p[4]
         }));
+
+        const RENTAL_COUNT = Number(RAW.rc || 0);
 
         const S = window.dashState = window.dashState || {
           tf:'All', areaF:'All', cityF:'All', bedsF:'All',
@@ -474,7 +494,8 @@
         let h = '<div style="max-width:1440px">';
         h += '<h1>UAE Real Estate Market Scanner</h1>';
         h += '<div style="text-align:center;color:var(--text-muted);font-size:12px;margin-bottom:4px">Last Updated: '+updatedAtLabel+'</div>';
-        h += '<div class="subtitle">'+LISTINGS.length.toLocaleString()+' sale listings ('+st.dubaiN.toLocaleString()+' Dubai, '+st.adN.toLocaleString()+' Abu Dhabi) matched against rental listings across '+bedKeys.length+' unit types &middot; Property Finder</div>';
+        const rentalCountLabel = RENTAL_COUNT > 0 ? RENTAL_COUNT.toLocaleString() : '\u2014';
+        h += '<div class="subtitle">'+LISTINGS.length.toLocaleString()+' sale listings ('+st.dubaiN.toLocaleString()+' Dubai, '+st.adN.toLocaleString()+' Abu Dhabi) matched against '+rentalCountLabel+' rental listings (Source: Property Finder)</div>';
 
         var bigPctVal = st.bigPctDrop>0 ? st.bigPctDrop.toFixed(1)+'%' : '\u2014';
         var bigAedVal = st.bigAedDrop>0 ? fmt(st.bigAedDrop) : '\u2014';
