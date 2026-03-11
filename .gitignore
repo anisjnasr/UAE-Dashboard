@@ -9,6 +9,9 @@ __pycache__/
 # SQLite database (rebuilt from data)
 data/listings.db
 
+# Ephemeral summary for notification email (generated each run)
+data/refresh_summary.json
+
 # OS files
 Thumbs.db
 .DS_Store

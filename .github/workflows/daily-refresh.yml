@@ -1,0 +1,105 @@
+# Daily data refresh: fetch Property Finder listings, run process_data.py, commit and push data.
+# Runs at midnight UAE (20:00 UTC) with a backup at 12:30 AM UAE (20:30 UTC).
+# Persists data/dashboard_data.json and data/listings.db so drop detection and indices stay correct.
+# Optional: add repository secret FORMSPREE_FORM_ID to get an email after each successful run (see README).
+
+name: Daily data refresh
+
+on:
+  schedule:
+    # Midnight UAE (UTC+4) = 20:00 UTC
+    - cron: "0 20 * * *"
+    # Backup run 30 min later in case of transient failure
+    - cron: "30 20 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Record start time
+        run: date +%s > .refresh_start_ts
+
+      - name: Fetch listings
+        run: python scripts/fetch_propertyfinder_listings.py
+
+      - name: Process data
+        run: python process_data.py
+
+      - name: Commit and push data
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git add data/dashboard_data.json
+          git add -f data/listings.db
+          for f in "data/Multiple Cities - multiple unit types - sales data.json" "data/Multiple Cities - multiple unit types - rental data.json"; do
+            [ -f "$f" ] && git add "$f"
+          done
+          if git diff --staged --quiet; then
+            echo "No data changes to commit."
+          else
+            git commit -m "Daily data refresh ($(date -u +'%Y-%m-%d %H:%M UTC'))"
+            git push origin HEAD:main
+          fi
+
+      - name: Notify on success (optional)
+        if: success()
+        env:
+          FORMSPREE_FORM_ID: ${{ secrets.FORMSPREE_FORM_ID }}
+        run: |
+          if [ -z "$FORMSPREE_FORM_ID" ]; then
+            exit 0
+          fi
+          start_ts=$(cat .refresh_start_ts 2>/dev/null || echo 0)
+          end_ts=$(date +%s)
+          duration_s=$((end_ts - start_ts))
+          mins=$((duration_s / 60))
+          secs=$((duration_s % 60))
+          DURATION_STR="${mins}m ${secs}s"
+          BODY_FILE=$(mktemp)
+          {
+            echo "Daily data refresh completed at $(date -u +'%Y-%m-%d %H:%M UTC')."
+            echo "Duration: ${DURATION_STR}"
+            echo ""
+            if [ -f data/refresh_summary.json ]; then
+              echo "SALES LISTINGS RETRIEVED"
+              echo "  By city:"
+              jq -r '.sales.by_city | to_entries[] | "    \(.key): \(.value | tostring)"' data/refresh_summary.json 2>/dev/null || true
+              echo "    Total: $(jq -r '.sales.total' data/refresh_summary.json 2>/dev/null)"
+              echo "  By unit type:"
+              jq -r '.sales.by_unit_type | to_entries[] | "    \(.key): \(.value | tostring)"' data/refresh_summary.json 2>/dev/null || true
+              echo "    Total: $(jq -r '.sales.total' data/refresh_summary.json 2>/dev/null)"
+              echo ""
+              echo "RENTAL LISTINGS RETRIEVED"
+              echo "  By city:"
+              jq -r '.rentals.by_city | to_entries[] | "    \(.key): \(.value | tostring)"' data/refresh_summary.json 2>/dev/null || true
+              echo "    Total: $(jq -r '.rentals.total' data/refresh_summary.json 2>/dev/null)"
+              echo "  By unit type:"
+              jq -r '.rentals.by_unit_type | to_entries[] | "    \(.key): \(.value | tostring)"' data/refresh_summary.json 2>/dev/null || true
+              echo "    Total: $(jq -r '.rentals.total' data/refresh_summary.json 2>/dev/null)"
+            fi
+          } > "$BODY_FILE"
+          SUBJECT="UAE Dashboard – refresh success (${DURATION_STR})"
+          curl -sS -X POST "https://formspree.io/f/${FORMSPREE_FORM_ID}" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "_subject=${SUBJECT}" \
+            --data-urlencode "message@${BODY_FILE}"
+          rm -f "$BODY_FILE"
