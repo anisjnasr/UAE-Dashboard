@@ -981,6 +981,7 @@ def main():
         url = PF_BASE + (url_row[0] if url_row and url_row[0] else "")
 
         drops_out.append([
+            lid,
             building, area_idx, sqft or 0, beds or "Studio", furn_code,
             round(first_price), round(prev_price), round(cur_price),
             round(drop_prev), round(drop_pct_prev, 1),
@@ -1009,6 +1010,7 @@ def main():
         url = PF_BASE + (url_row[0] if url_row and url_row[0] else "")
 
         rental_drops_out.append([
+            lid,
             building, area_idx, sqft or 0, beds or "Studio", furn_code,
             round(first_rent), round(prev_rent), round(cur_rent),
             round(drop_prev), round(drop_pct_prev, 1),
@@ -1029,6 +1031,23 @@ def main():
         "SELECT COUNT(*) FROM rental_drops WHERE last_drop_date = ?",
         (snapshot_date,),
     ).fetchone()[0]
+
+    # Price and rental histories per listing (for drop tracker pages)
+    ph = {}
+    for (lid,) in conn.execute("SELECT DISTINCT listing_id FROM price_drops").fetchall():
+        rows = conn.execute(
+            "SELECT snapshot_date, price FROM listing_history WHERE listing_id = ? ORDER BY snapshot_date ASC",
+            (lid,),
+        ).fetchall()
+        ph[str(lid)] = [[r[0], int(r[1])] for r in rows]
+    rh = {}
+    for (lid,) in conn.execute("SELECT DISTINCT listing_id FROM rental_drops").fetchall():
+        rows = conn.execute(
+            "SELECT snapshot_date, annual_rent FROM rental_history WHERE listing_id = ? ORDER BY snapshot_date ASC",
+            (lid,),
+        ).fetchall()
+        rh[str(lid)] = [[r[0], int(r[1])] for r in rows]
+
     conn.close()
 
     # --- Area summaries ---
@@ -1124,6 +1143,8 @@ def main():
         "s": summaries_out,
         "d": drops_out,
         "rd": rental_drops_out,
+        "ph": ph,
+        "rh": rh,
         "pi": pi,
         "pai": pai,
         "ri": ri,

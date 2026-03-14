@@ -390,8 +390,66 @@
         const year = d.getFullYear();
         return day + '-' + monthName + '-' + year;
       }
+      function fmtTrackerDate(s) {
+        if (!s) return '\u2014';
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return s;
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+      }
+
+      function renderListingDetail(type, id) {
+        const RAW = window.RAW;
+        if (!RAW) { document.getElementById('root').innerHTML = '<div style="color:var(--accent-red)">Loading data...</div>'; return; }
+        const AREAS = RAW.a || [];
+        const DROPS = (RAW.d||[]).map(d => ({ id: String(d[0]), building: d[1], area: AREAS[d[2]]||'', city: d[22]||'Dubai', url: d[23]||'' }));
+        const RENTAL_DROPS = (RAW.rd||[]).map(d => ({ id: String(d[0]), building: d[1], area: AREAS[d[2]]||'', city: d[16]||'Dubai', url: d[17]||'' }));
+        const rec = type === 'rental' ? RENTAL_DROPS.find(d => d.id === id) : DROPS.find(d => d.id === id);
+        const history = type === 'rental' ? (RAW.rh || {})[id] : (RAW.ph || {})[id];
+        const isRental = type === 'rental';
+        const valueLabel = isRental ? 'Annual rent (AED)' : 'Price (AED)';
+        let h = '<div style="max-width:800px">';
+        h += '<div style="margin-bottom:16px"><a href="#" id="listingDetailBack" style="color:var(--accent-blue);text-decoration:none;font-size:14px">&larr; Back to dashboard</a></div>';
+        if (!rec) {
+          h += '<div style="color:var(--text-muted)">Listing not found.</div></div>';
+          document.getElementById('root').innerHTML = h;
+          document.getElementById('listingDetailBack').onclick = function(e){ e.preventDefault(); location.hash=''; render(); };
+          return;
+        }
+        const bLink = rec.url ? '<a href="'+rec.url+'" target="_blank" class="bld-link">'+rec.building+'</a>' : rec.building;
+        h += '<h1 style="font-size:22px;margin-bottom:4px">'+bLink+'</h1>';
+        h += '<div style="color:var(--text-muted);font-size:14px;margin-bottom:20px">'+rec.area+' &middot; '+rec.city+(isRental ? ' &middot; Rental' : '')+'</div>';
+        if (!history || history.length === 0) {
+          h += '<div style="color:var(--text-muted)">No price history available.</div></div>';
+          document.getElementById('root').innerHTML = h;
+          document.getElementById('listingDetailBack').onclick = function(e){ e.preventDefault(); location.hash=''; render(); };
+          return;
+        }
+        h += '<div class="table-wrap"><table><thead><tr>';
+        h += '<th class="left">Date</th><th>'+valueLabel+'</th><th>Drop (AED)</th><th>Drop (%)</th></tr></thead><tbody>';
+        for (let i = 0; i < history.length; i++) {
+          const row = history[i];
+          const date = row[0], value = row[1];
+          const prev = i > 0 ? history[i-1][1] : null;
+          const drop = prev != null ? prev - value : 0;
+          const dropPct = (prev != null && prev > 0 && drop > 0) ? ((drop / prev) * 100).toFixed(1) : '\u2014';
+          const label = i === 0 ? 'Original' : '';
+          const bg = i % 2 === 0 ? 'var(--bg-row-even)' : 'var(--bg-row-odd)';
+          h += '<tr style="background:'+bg+'">';
+          h += '<td class="left">'+fmtTrackerDate(date)+(label ? ' <span style="color:var(--text-faint);font-size:12px">'+label+'</span>' : '')+'</td>';
+          h += '<td>'+fmt(value)+'</td>';
+          h += '<td>'+(drop > 0 ? '<span class="drop-val">-'+fmt(drop)+'</span>' : '\u2014')+'</td>';
+          h += '<td>'+(dropPct !== '\u2014' ? '<span class="drop-val">-'+dropPct+'%</span>' : '\u2014')+'</td></tr>';
+        }
+        h += '</tbody></table></div></div>';
+        document.getElementById('root').innerHTML = h;
+        document.getElementById('listingDetailBack').onclick = function(e){ e.preventDefault(); location.hash=''; render(); };
+      }
 
       function render() {
+        const hash = (location.hash || '').replace(/^#/, '');
+        const m = hash.match(/^listing\/(sales|rental)\/(.+)$/);
+        if (m) { renderListingDetail(m[1], m[2]); return; }
         const RAW = window.RAW;
         if (!RAW || !RAW.l) { document.getElementById('root').innerHTML = '<div style="color:var(--accent-red);font-size:15px">Failed to load data.</div>'; return; }
         const T = tierColors();
@@ -413,20 +471,20 @@
           city: s[15]||'Dubai', bldgPct: s[1] ? Math.round((s[3]/s[1])*100) : 0
         }));
         const DROPS = (RAW.d||[]).map(d => ({
-          building: d[0], area: AREAS[d[1]]||'', sqft: d[2], beds: d[3], furnished: d[4],
-          firstPrice: d[5], prevPrice: d[6], curPrice: d[7],
-          dropPrev: d[8], dropPctPrev: d[9], totalDrop: d[10], totalDropPct: d[11],
-          dropCount: d[12], oldGY: d[13], oldNY: d[14], newGY: d[15], newNY: d[16],
-          tier: d[17], scPsf: d[18], firstSeen: d[19], lastDrop: d[20],
-          city: d[21]||'Dubai', url: d[22]||'', psf: d[2] ? Math.round(d[7]/d[2]) : 0
+          id: String(d[0]), building: d[1], area: AREAS[d[2]]||'', sqft: d[3], beds: d[4], furnished: d[5],
+          firstPrice: d[6], prevPrice: d[7], curPrice: d[8],
+          dropPrev: d[9], dropPctPrev: d[10], totalDrop: d[11], totalDropPct: d[12],
+          dropCount: d[13], oldGY: d[14], oldNY: d[15], newGY: d[16], newNY: d[17],
+          tier: d[18], scPsf: d[19], firstSeen: d[20], lastDrop: d[21],
+          city: d[22]||'Dubai', url: d[23]||'', psf: d[3] ? Math.round(d[8]/d[3]) : 0
         }));
         const RENTAL_DROPS = (RAW.rd||[]).map(d => ({
-          building: d[0], area: AREAS[d[1]]||'', sqft: d[2], beds: d[3], furnished: d[4],
-          firstRent: d[5], prevRent: d[6], curRent: d[7],
-          dropPrev: d[8], dropPctPrev: d[9], totalDrop: d[10], totalDropPct: d[11],
-          dropCount: d[12], firstSeen: d[13], lastDrop: d[14],
-          city: d[15]||'Dubai', url: d[16]||'', tier: d[17]||'X',
-          rpsf: d[2] ? Math.round(d[7]/d[2]) : 0
+          id: String(d[0]), building: d[1], area: AREAS[d[2]]||'', sqft: d[3], beds: d[4], furnished: d[5],
+          firstRent: d[6], prevRent: d[7], curRent: d[8],
+          dropPrev: d[9], dropPctPrev: d[10], totalDrop: d[11], totalDropPct: d[12],
+          dropCount: d[13], firstSeen: d[14], lastDrop: d[15],
+          city: d[16]||'Dubai', url: d[17]||'', tier: d[18]||'X',
+          rpsf: d[3] ? Math.round(d[8]/d[3]) : 0
         }));
 
         const PRICE_INDEX = (RAW.pi||[]).map(p => ({
@@ -565,8 +623,8 @@
           rentBigAedDropUrl: frd.length ? frd.reduce((best,d)=>d.totalDrop>best.totalDrop?d:best,frd[0]).url : '',
           dubaiN: LISTINGS.filter(l=>l.city==='Dubai').length,
           adN: LISTINGS.filter(l=>l.city==='Abu Dhabi').length,
-          dropCount24: Number(RAW.d24) || 0,
-          rentDropCount24: Number(RAW.rd24) || 0,
+          dropCount24: (function(){ const snap = (updatedAtRaw||'').split('T')[0]; return fd.filter(d=>(d.lastDrop||'').split('T')[0]===snap).length; })(),
+          rentDropCount24: (function(){ const snap = (updatedAtRaw||'').split('T')[0]; return frd.filter(d=>(d.lastDrop||'').split('T')[0]===snap).length; })(),
           rmin: Number(RAW.rmin) || 0,
           rmax: Number(RAW.rmax) || 0,
           rmed: Number(RAW.rmed) || 0,
@@ -816,7 +874,7 @@
           h += dth('Last Drop','dropPrev')+dth('Last %','dropPctPrev')+dth('Total Drop','totalDrop')+dth('Total %','totalDropPct');
           h += dth('Drops','dropCount')+dth('Old GY','oldGY')+dth('New GY','newGY')+dth('Old NY','oldNY')+dth('New NY','newNY')+dth('Tier','tier');
           h += '</tr></thead><tbody>';
-          dropPaged.forEach((d,i)=>{ const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)'; const bName=d.url?'<a href="'+d.url+'" target="_blank" class="bld-link">'+d.building+'</a>':d.building; h += '<tr style="background:'+bg+'"><td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td><td style="color:var(--text-dim)">'+fmt(d.firstPrice)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevPrice)+'</td><td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curPrice)+'</td><td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td><td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td><td>'+d.dropCount+'</td><td style="color:var(--text-dim)">'+pct(d.oldGY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newGY)+'</td><td style="color:var(--text-dim)">'+pct(d.oldNY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newNY)+'</td><td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td></tr>'; });
+          dropPaged.forEach((d,i)=>{ const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)'; const bName=d.url?'<a href="'+d.url+'" target="_blank" class="bld-link">'+d.building+'</a>':d.building; h += '<tr style="background:'+bg+'"><td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td><td style="color:var(--text-dim)">'+fmt(d.firstPrice)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevPrice)+'</td><td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curPrice)+'</td><td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td><td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td><td><a href="#listing/sales/'+d.id+'" class="bld-link" title="View price tracker">'+d.dropCount+'</a></td><td style="color:var(--text-dim)">'+pct(d.oldGY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newGY)+'</td><td style="color:var(--text-dim)">'+pct(d.oldNY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newNY)+'</td><td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td></tr>'; });
           h += '</tbody></table></div>';
         } else {
           h += '<div class="table-wrap drops-table"><table><thead><tr>';
@@ -824,7 +882,7 @@
           h += dth('Last Drop','dropPrev')+dth('Last %','dropPctPrev')+dth('Total Drop','totalDrop')+dth('Total %','totalDropPct');
           h += dth('Drops','dropCount')+dth('Rent/sf','rpsf')+dth('Tier','tier');
           h += '</tr></thead><tbody>';
-          dropPaged.forEach((d,i)=>{ const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)'; const bName=d.url?'<a href="'+d.url+'" target="_blank" class="bld-link">'+d.building+'</a>':d.building; h += '<tr style="background:'+bg+'"><td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td><td style="color:var(--text-dim)">'+fmt(d.firstRent)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevRent)+'</td><td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curRent)+'</td><td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td><td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td><td>'+d.dropCount+'</td><td style="color:var(--text-dim)">'+fmt(d.rpsf)+'</td><td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td></tr>'; });
+          dropPaged.forEach((d,i)=>{ const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)'; const bName=d.url?'<a href="'+d.url+'" target="_blank" class="bld-link">'+d.building+'</a>':d.building; h += '<tr style="background:'+bg+'"><td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td><td style="color:var(--text-dim)">'+fmt(d.firstRent)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevRent)+'</td><td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curRent)+'</td><td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td><td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td><td><a href="#listing/rental/'+d.id+'" class="bld-link" title="View rent tracker">'+d.dropCount+'</a></td><td style="color:var(--text-dim)">'+fmt(d.rpsf)+'</td><td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td></tr>'; });
           h += '</tbody></table></div>';
         }
         h += '<div class="pagination"><span style="color:var(--text-muted)">Showing '+(safeDropPage*S.PP+1)+'\u2013'+Math.min((safeDropPage+1)*S.PP,activeDrops.length)+' of '+activeDrops.length.toLocaleString()+' drops</span>';
@@ -885,7 +943,7 @@
               h += '<td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curPrice)+'</td>';
               h += '<td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td>';
               h += '<td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td>';
-              h += '<td>'+d.dropCount+'</td>';
+              h += '<td><a href="#listing/sales/'+d.id+'" class="bld-link" title="View price tracker">'+d.dropCount+'</a></td>';
               h += '<td style="color:var(--text-dim)">'+pct(d.oldGY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newGY)+'</td>';
               h += '<td style="color:var(--text-dim)">'+pct(d.oldNY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newNY)+'</td>';
               h += '<td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td>';
@@ -915,7 +973,7 @@
               h += '<td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curRent)+'</td>';
               h += '<td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td>';
               h += '<td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td>';
-              h += '<td>'+d.dropCount+'</td><td style="color:var(--text-dim)">'+fmt(d.rpsf)+'</td>';
+              h += '<td><a href="#listing/rental/'+d.id+'" class="bld-link" title="View rent tracker">'+d.dropCount+'</a></td><td style="color:var(--text-dim)">'+fmt(d.rpsf)+'</td>';
               h += '<td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td>';
               h += '</tr>';
             });
@@ -979,7 +1037,14 @@
         const nd=document.getElementById('nextDropPg');if(nd)nd.onclick=()=>{if(S.dropView==='sales'){S.dpg=Math.min(dtp-1,S.dpg+1);}else{S.rdpg=Math.min(rdtp-1,S.rdpg+1);}rerender();};
       }
       window.render = render;
-      fetch(DATA_URL).then(r=>r.ok?r.json():Promise.reject()).then(data=>{window.RAW=data;render();}).catch(()=>{window.RAW=null;render();});
+      function route() {
+        const hash = (location.hash || '').replace(/^#/, '');
+        const m = hash.match(/^listing\/(sales|rental)\/(.+)$/);
+        if (m) renderListingDetail(m[1], m[2]);
+        else render();
+      }
+      window.addEventListener('hashchange', function(){ if (window.RAW) route(); });
+      fetch(DATA_URL).then(r=>r.ok?r.json():Promise.reject()).then(data=>{window.RAW=data;route();}).catch(()=>{window.RAW=null;route();});
     })();
   </script>
 </body>
