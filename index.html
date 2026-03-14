@@ -364,6 +364,22 @@
         return day + ' ' + monthName + ' ' + year;
       }
 
+      function fmtFullDateTimeAmPm(s) {
+        if (!s) return '\u2014';
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return s;
+        const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const day = d.getDate();
+        const monthName = months[d.getMonth()];
+        const year = d.getFullYear();
+        let hours = d.getHours();
+        const minutes = d.getMinutes().toString().padStart(2, '0');
+        const ampm = hours >= 12 ? 'pm' : 'am';
+        hours = hours % 12;
+        if (hours === 0) hours = 12;
+        return day + ' ' + monthName + ' ' + year + ', ' + hours + ':' + minutes + ' ' + ampm;
+      }
+
       function fmtShortDateStr(s) {
         if (!s) return '\u2014';
         const d = new Date(s);
@@ -380,7 +396,7 @@
         if (!RAW || !RAW.l) { document.getElementById('root').innerHTML = '<div style="color:var(--accent-red);font-size:15px">Failed to load data.</div>'; return; }
         const T = tierColors();
         const updatedAtRaw = RAW.u || '';
-        const updatedAtLabel = fmtFullDateStr(updatedAtRaw);
+        const updatedAtLabel = fmtFullDateTimeAmPm(updatedAtRaw);
         const createdRaw = RAW.c || RAW.u || '';
         const createdLabel = createdRaw ? fmtFullDateStr(createdRaw.indexOf('T') >= 0 ? createdRaw : createdRaw + 'T00:00:00') : '\u2014';
         const AREAS = RAW.a || [];
@@ -437,7 +453,7 @@
         const S = window.dashState = window.dashState || {
           tf:'All', areaF:'All', cityF:'All', bedsF:'All',
           view:'listings', confF:'All',
-          minY:0, maxP:2000000, pg:0, dpg:0, rdpg:0,
+          minY:0, maxP:2000000, minSqft:0, maxSqft:0, pg:0, dpg:0, rdpg:0,
           sk:'netYield', sd:'desc', ask:'medPrice', asd:'asc',
           dsk:'totalDropPct', dsd:'desc', PP:50,
           dropView:'sales', areaExpanded:false,
@@ -454,6 +470,8 @@
         if (S.areaF !== 'All') fl = fl.filter(l => l.area === S.areaF);
         if (S.minY > 0) fl = fl.filter(l => l.grossYield >= S.minY);
         if (S.maxP < 1e9) fl = fl.filter(l => l.price <= S.maxP);
+        if (S.minSqft > 0) fl = fl.filter(l => (l.sqft || 0) >= S.minSqft);
+        if (S.maxSqft > 0) fl = fl.filter(l => (l.sqft || 0) <= S.maxSqft);
         if (S.confF !== 'All') fl = fl.filter(l => l.conf === S.confF);
         function cmp(a,b,k,d) {
           let va=a[k],vb=b[k];
@@ -477,18 +495,24 @@
         if (S.bedsF !== 'All') fd = fd.filter(d => d.beds === S.bedsF);
         if (S.tf !== 'All') fd = fd.filter(d => d.tier === S.tf);
         if (S.areaF !== 'All') fd = fd.filter(d => d.area === S.areaF);
+        if (S.minSqft > 0) fd = fd.filter(d => (d.sqft || 0) >= S.minSqft);
+        if (S.maxSqft > 0) fd = fd.filter(d => (d.sqft || 0) <= S.maxSqft);
         fd = fd.slice().sort((a,b) => cmp(a,b,S.dsk,S.dsd));
         let frd = RENTAL_DROPS;
         if (S.cityF !== 'All') frd = frd.filter(d => d.city === S.cityF);
         if (S.bedsF !== 'All') frd = frd.filter(d => d.beds === S.bedsF);
         if (S.tf !== 'All') frd = frd.filter(d => d.tier === S.tf);
         if (S.areaF !== 'All') frd = frd.filter(d => d.area === S.areaF);
+        if (S.minSqft > 0) frd = frd.filter(d => (d.sqft || 0) >= S.minSqft);
+        if (S.maxSqft > 0) frd = frd.filter(d => (d.sqft || 0) <= S.maxSqft);
         frd = frd.slice().sort((a,b) => cmp(a,b,S.dsk,S.dsd));
 
         const bedCounts = LISTINGS.reduce((acc, l) => {
           if (S.cityF !== 'All' && l.city !== S.cityF) return acc;
           if (S.areaF !== 'All' && l.area !== S.areaF) return acc;
           if (S.tf !== 'All' && l.tier !== S.tf) return acc;
+          if (S.minSqft > 0 && (l.sqft || 0) < S.minSqft) return acc;
+          if (S.maxSqft > 0 && (l.sqft || 0) > S.maxSqft) return acc;
           const key = l.beds || 'Unknown';
           acc[key] = (acc[key] || 0) + 1;
           return acc;
@@ -558,6 +582,8 @@
           if (S.cityF !== 'All' && l.city !== S.cityF) return false;
           if (S.bedsF !== 'All' && l.beds !== S.bedsF) return false;
           if (S.tf !== 'All' && l.tier !== S.tf) return false;
+          if (S.minSqft > 0 && (l.sqft || 0) < S.minSqft) return false;
+          if (S.maxSqft > 0 && (l.sqft || 0) > S.maxSqft) return false;
           return true;
         });
         const allAreas = ['All',...[...new Set(areaUniverse.map(l=>l.area))].filter(Boolean).sort()];
@@ -581,6 +607,7 @@
         h += '<select id="bedsSel">'+bedFilterOptions.map(o=>'<option value="'+o.k+'"'+(S.bedsF===o.k?' selected':'')+'>'+(o.k==='All'?'Bedrooms':o.l)+'</option>').join('')+'</select>';
         h += '<select id="areaSel">'+allAreas.map(o=>'<option value="'+o+'"'+(S.areaF===o?' selected':'')+'>'+(o==='All'?'All Areas':o)+'</option>').join('')+'</select>';
         h += '<select id="tierSel">'+qualityOptions.map(o=>'<option value="'+o.k+'"'+(S.tf===o.k?' selected':'')+'>'+(o.k==='All'?'Community Quality':o.l)+'</option>').join('')+'</select>';
+        h += '<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-muted)">Sqft <input type="number" id="minSqft" placeholder="Min" min="0" step="50" value="'+(S.minSqft>0?S.minSqft:'')+'" style="width:72px"/>&ndash;<input type="number" id="maxSqft" placeholder="Max" min="0" step="50" value="'+(S.maxSqft>0?S.maxSqft:'')+'" style="width:72px"/></label>';
         h += '</div>';
         const activeAreasTop = (S.cityF==='Abu Dhabi' ? AD_AREAS : S.cityF==='Dubai' ? DUBAI_AREAS : [...DUBAI_AREAS,...AD_AREAS]).filter(a=>allAreas.includes(a));
         const shownAreasTop = S.areaExpanded ? activeAreasTop : activeAreasTop.slice(0, 10);
@@ -939,6 +966,8 @@
         const bedsSel=document.getElementById('bedsSel');if(bedsSel)bedsSel.onchange=()=>{S.bedsF=bedsSel.value;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};
         const areaSel=document.getElementById('areaSel');if(areaSel)areaSel.onchange=()=>{S.areaF=areaSel.value;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};
         const tierSel=document.getElementById('tierSel');if(tierSel)tierSel.onchange=()=>{S.tf=tierSel.value;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};
+        const minSqftEl=document.getElementById('minSqft');if(minSqftEl)minSqftEl.onchange=()=>{S.minSqft=parseInt(minSqftEl.value,10)||0;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};
+        const maxSqftEl=document.getElementById('maxSqft');if(maxSqftEl)maxSqftEl.onchange=()=>{S.maxSqft=parseInt(maxSqftEl.value,10)||0;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};
         document.querySelectorAll('[data-areachip]').forEach(btn=>{btn.onclick=()=>{S.areaF=btn.dataset.areachip;S.pg=0;S.dpg=0;S.rdpg=0;rerender();};});
         const toggleAreasBtn=document.getElementById('toggleAreasBtn');if(toggleAreasBtn)toggleAreasBtn.onclick=()=>{S.areaExpanded=!S.areaExpanded;rerender();};
         document.querySelectorAll('[data-dropview]').forEach(btn=>{btn.onclick=()=>{S.dropView=btn.dataset.dropview;S.dpg=0;S.rdpg=0;rerender();};});
