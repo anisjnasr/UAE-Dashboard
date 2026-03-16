@@ -1,5 +1,5 @@
 # Daily data refresh: fetch Property Finder listings, run process_data.py, commit and push data.
-# Runs at midnight UAE (20:00 UTC) with a backup at 12:30 AM UAE (20:30 UTC).
+# Runs once at midnight UAE (20:00 UTC).
 # Persists data/dashboard_data.json and data/listings.db so drop detection and indices stay correct.
 # Optional: add repository secret FORMSPREE_FORM_ID to get an email after each successful run (see README).
 
@@ -9,8 +9,6 @@ on:
   schedule:
     # Midnight UAE (UTC+4) = 20:00 UTC
     - cron: "0 20 * * *"
-    # Backup run 30 min later in case of transient failure
-    - cron: "30 20 * * *"
   workflow_dispatch:
 
 permissions:

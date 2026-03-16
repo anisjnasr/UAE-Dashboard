@@ -10,6 +10,7 @@ import sqlite3
 import sys
 from collections import defaultdict
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -833,7 +834,7 @@ def main():
     print(f"Filtered rentals (valid sqft): {len(rentals_for_tracking)}")
 
     # --- SQLite ---
-    snapshot_date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    snapshot_date = datetime.now(ZoneInfo("Asia/Dubai")).isoformat(timespec="seconds")
     rental_count = len(rentals_for_tracking)
     conn = init_db(DB_PATH)
     price_city_idx = []
