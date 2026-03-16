@@ -29,6 +29,13 @@ from config.area_tiers import (
 PF_BASE = "https://www.propertyfinder.ae"
 TRACKED_BEDS = {"Studio", "1BR", "2BR"}
 
+# Guardrails against bad source records creating impossible yields.
+MIN_SALE_PSF = 150
+MAX_SALE_PSF = 10000
+MAX_GROSS_YIELD_PCT = 35.0
+MIN_NET_YIELD_PCT = -5.0
+MAX_NET_YIELD_PCT = 30.0
+
 # Legacy names kept for backward compatibility
 LEGACY_SALES_FILES = {
     "sales.json",
@@ -319,6 +326,32 @@ def annual_rent(rent_val, period):
     if "month" in p or "monthly" in p or not p:
         return r * 12
     return r * 12
+
+
+def sale_psf(price, sqft):
+    if not price or not sqft:
+        return None
+    try:
+        return float(price) / float(sqft)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def is_plausible_sale_psf(price, sqft):
+    psf = sale_psf(price, sqft)
+    if psf is None:
+        return False
+    return MIN_SALE_PSF <= psf <= MAX_SALE_PSF
+
+
+def is_plausible_yields(gross_yield, net_yield):
+    if gross_yield is None or net_yield is None:
+        return False
+    if gross_yield <= 0 or gross_yield > MAX_GROSS_YIELD_PCT:
+        return False
+    if net_yield < MIN_NET_YIELD_PCT or net_yield > MAX_NET_YIELD_PCT:
+        return False
+    return True
 
 
 def median(xs):
@@ -903,6 +936,8 @@ def main():
     # --- Listings output ---
     # [building, area_idx, price, sqft, furnished, grossYield, netYield, tier, conf, scPsf, city, beds, url]
     listings_out = []
+    skipped_bad_sale_psf = 0
+    skipped_bad_yield = 0
     for s in sales:
         building = (s.get("building") or "").strip() or "Unknown"
         city, area = get_city_area(s)
@@ -911,6 +946,9 @@ def main():
         price = float(s.get("price") or 0)
         sqft = norm_sqft(s.get("sqft"))
         if not sqft or price <= 0:
+            continue
+        if not is_plausible_sale_psf(price, sqft):
+            skipped_bad_sale_psf += 1
             continue
         beds = norm_beds(s.get("beds"))
         if beds is None:
@@ -932,6 +970,9 @@ def main():
         gross_yield = (rent_annual / price) * 100
         sc_psf = sc_for_area(area)
         net_yield = ((rent_annual - sc_psf * sqft) / price) * 100 if price > 0 else 0
+        if not is_plausible_yields(gross_yield, net_yield):
+            skipped_bad_yield += 1
+            continue
         tier = AREA_TIERS.get(area, DEFAULT_TIER)
         area_idx = areas.index(area) if area in areas else 0
         furnished = norm_furnished(s.get("furnished"))
@@ -967,14 +1008,18 @@ def main():
             rpsf = median(by_building[bkey])
         if rpsf is None and akey in by_area:
             rpsf = median(by_area[akey])
-        if rpsf and sqft and cur_price > 0:
+        if rpsf and sqft and cur_price > 0 and is_plausible_sale_psf(cur_price, sqft):
             rent_annual = rpsf * sqft
             new_gy = round((rent_annual / cur_price) * 100, 1)
             new_ny = round(((rent_annual - sc_psf * sqft) / cur_price) * 100, 1)
             old_gy = round((rent_annual / first_price) * 100, 1) if first_price > 0 else 0
             old_ny = round(((rent_annual - sc_psf * sqft) / first_price) * 100, 1) if first_price > 0 else 0
+            if not is_plausible_yields(new_gy, new_ny):
+                new_gy = new_ny = None
+            if not is_plausible_yields(old_gy, old_ny):
+                old_gy = old_ny = None
         else:
-            new_gy = new_ny = old_gy = old_ny = 0
+            new_gy = new_ny = old_gy = old_ny = None
         # Find URL from listing_history
         url_row = conn.execute(
             "SELECT path FROM listing_history WHERE listing_id = ? ORDER BY snapshot_date DESC LIMIT 1",
@@ -1204,6 +1249,10 @@ def main():
     print(
         f"\nOutput: {len(listings_out)} listings, {len(summaries_out)} areas, "
         f"{len(drops_out)} price drops, {len(rental_drops_out)} rental drops"
+    )
+    print(
+        f"Guardrails: skipped {skipped_bad_sale_psf} listings due to implausible sale AED/sqft "
+        f"and {skipped_bad_yield} due to implausible yields"
     )
     print(f"Cities: {dict(city_counts)}")
     print(f"Unit types: {dict(beds_counts)}")
