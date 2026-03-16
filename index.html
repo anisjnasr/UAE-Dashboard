@@ -353,10 +353,20 @@
       }
       function pct(x) { return (x == null || isNaN(x)) ? '\u2014' : Number(x).toFixed(1) + '%'; }
 
+      function parseDashboardDate(s) {
+        if (!s) return null;
+        const raw = String(s);
+        const hasTime = raw.indexOf('T') >= 0;
+        const hasZone = /([zZ]|[+\-]\d{2}:\d{2})$/.test(raw);
+        const normalized = hasTime && !hasZone ? (raw + 'Z') : raw;
+        const d = new Date(normalized);
+        return isNaN(d.getTime()) ? null : d;
+      }
+
       function fmtFullDateStr(s) {
         if (!s) return '\u2014';
-        const d = new Date(s);
-        if (isNaN(d.getTime())) return s;
+        const d = parseDashboardDate(s);
+        if (!d) return s;
         const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
         const day = d.getDate();
         const monthName = months[d.getMonth()];
@@ -366,8 +376,8 @@
 
       function fmtFullDateTimeAmPm(s) {
         if (!s) return '\u2014';
-        const d = new Date(s);
-        if (isNaN(d.getTime())) return s;
+        const d = parseDashboardDate(s);
+        if (!d) return s;
         const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
         const day = d.getDate();
         const monthName = months[d.getMonth()];
@@ -382,8 +392,8 @@
 
       function fmtShortDateStr(s) {
         if (!s) return '\u2014';
-        const d = new Date(s);
-        if (isNaN(d.getTime())) return s;
+        const d = parseDashboardDate(s);
+        if (!d) return s;
         const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         const day = d.getDate();
         const monthName = months[d.getMonth()];
@@ -392,8 +402,8 @@
       }
       function fmtTrackerDate(s) {
         if (!s) return '\u2014';
-        const d = new Date(s);
-        if (isNaN(d.getTime())) return s;
+        const d = parseDashboardDate(s);
+        if (!d) return s;
         const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
       }
