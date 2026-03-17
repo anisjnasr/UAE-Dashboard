@@ -34,7 +34,7 @@ Track Dubai and Abu Dhabi residential listing yields (studios and 1-bed) with **
 
 ### Fully automated fetch + process
 
-- **Cloud (no PC required):** A GitHub Actions workflow runs daily at **midnight UAE time** (and again at 12:30 AM as a backup). It fetches listings, runs `process_data.py`, then commits and pushes `data/dashboard_data.json`, `data/listings.db`, and the fetched JSON files to `main`. Enable **Actions** in the repo and ensure the default branch is `main`; you can also trigger a run manually under **Actions → Daily data refresh → Run workflow**.
+- **Cloud (no PC required):** A GitHub Actions workflow runs daily at **midnight UAE time**. It fetches listings, runs `process_data.py`, then commits and pushes `data/dashboard_data.json`, a compressed SQLite history snapshot (`data/listings.db.gz`), and the fetched JSON files to `main`. Enable **Actions** in the repo and ensure the default branch is `main`; you can also trigger a run manually under **Actions → Daily data refresh → Run workflow**.
 - **Email after each successful refresh:** Create a form at [Formspree](https://formspree.io) that sends to your email (e.g. your address). From the form’s integration page, copy the form ID (the part after `/f/` in the form URL, e.g. `abc123xyz`). In your repo go to **Settings → Secrets and variables → Actions**, add a new repository secret named `FORMSPREE_FORM_ID` with that value. After each successful run you’ll get an email from Formspree with the success message.
 - Local – run once:
   ```bash

@@ -1,6 +1,6 @@
 # Daily data refresh: fetch Property Finder listings, run process_data.py, commit and push data.
 # Runs once at midnight UAE (20:00 UTC).
-# Persists data/dashboard_data.json (and listings.db when under GitHub size limit).
+# Persists data/dashboard_data.json and compressed DB history (data/listings.db.gz).
 # Optional: add repository secret FORMSPREE_FORM_ID to get an email after each successful run (see README).
 
 name: Daily data refresh
@@ -35,11 +35,56 @@ jobs:
       - name: Record start time
         run: date +%s > .refresh_start_ts
 
+      - name: Restore listings DB from compressed snapshot
+        run: |
+          if [ -f data/listings.db.gz ]; then
+            python - <<'PY'
+            from pathlib import Path
+            import gzip
+            import shutil
+
+            gz_path = Path("data/listings.db.gz")
+            db_path = Path("data/listings.db")
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            with gzip.open(gz_path, "rb") as src, db_path.open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+            print(f"Restored {db_path} from {gz_path}")
+            PY
+          else
+            echo "No compressed DB snapshot found; starting with fresh DB."
+          fi
+
       - name: Fetch listings
         run: python scripts/fetch_propertyfinder_listings.py
 
       - name: Process data
         run: python process_data.py
+
+      - name: Compress listings DB for Git persistence
+        run: |
+          if [ -f data/listings.db ]; then
+            python - <<'PY'
+            import sqlite3
+            from pathlib import Path
+            import gzip
+            import shutil
+
+            db = Path("data/listings.db")
+            gz = Path("data/listings.db.gz")
+
+            conn = sqlite3.connect(str(db))
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.execute("VACUUM")
+            conn.close()
+
+            with db.open("rb") as src, gzip.open(gz, "wb", compresslevel=9) as dst:
+                shutil.copyfileobj(src, dst)
+
+            print(f"Compressed {db.stat().st_size} bytes -> {gz.stat().st_size} bytes")
+            PY
+          else
+            echo "No listings.db generated; skipping compression."
+          fi
 
       - name: Commit and push data
         env:
@@ -49,19 +94,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git add data/dashboard_data.json
-          DB_MAX_BYTES=95000000
-          db_size=$(python - <<'PY'
-          from pathlib import Path
-          p = Path("data/listings.db")
-          print(p.stat().st_size if p.exists() else -1)
-          PY
-          )
-          if [ "$db_size" -gt 0 ] && [ "$db_size" -le "$DB_MAX_BYTES" ]; then
-            echo "Adding listings.db (${db_size} bytes)."
-            git add -f data/listings.db
-          else
-            echo "Skipping listings.db (${db_size} bytes) to avoid GitHub 100MB push limit."
-          fi
+          [ -f data/listings.db.gz ] && git add -f data/listings.db.gz
           for f in "data/Multiple Cities - multiple unit types - sales data.json" "data/Multiple Cities - multiple unit types - rental data.json"; do
             [ -f "$f" ] && git add "$f"
           done
