@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: daily-refresh-main
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
@@ -37,22 +41,40 @@ jobs:
 
       - name: Restore listings DB from compressed snapshot
         run: |
-          if [ -f data/listings.db.gz ]; then
-            python - <<'PY'
-            from pathlib import Path
-            import gzip
-            import shutil
+          python - <<'PY'
+          from pathlib import Path
+          import gzip
+          import shutil
+          import sqlite3
 
-            gz_path = Path("data/listings.db.gz")
-            db_path = Path("data/listings.db")
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-            with gzip.open(gz_path, "rb") as src, db_path.open("wb") as dst:
-                shutil.copyfileobj(src, dst)
-            print(f"Restored {db_path} from {gz_path}")
-            PY
-          else
-            echo "No compressed DB snapshot found; starting with fresh DB."
-          fi
+          data_dir = Path("data")
+          db_path = data_dir / "listings.db"
+          candidates = [data_dir / "listings.db.gz", data_dir / "listings.db.bak.gz"]
+          data_dir.mkdir(parents=True, exist_ok=True)
+
+          restored = False
+          for gz_path in candidates:
+              if not gz_path.exists():
+                  continue
+              try:
+                  with gzip.open(gz_path, "rb") as src, db_path.open("wb") as dst:
+                      shutil.copyfileobj(src, dst)
+                  conn = sqlite3.connect(str(db_path))
+                  check = conn.execute("PRAGMA integrity_check").fetchone()[0]
+                  conn.close()
+                  if check != "ok":
+                      raise RuntimeError(f"Integrity check failed: {check}")
+                  print(f"Restored {db_path} from {gz_path}")
+                  restored = True
+                  break
+              except Exception as exc:
+                  print(f"Failed restore from {gz_path}: {exc}")
+                  if db_path.exists():
+                      db_path.unlink()
+
+          if not restored:
+              print("No valid compressed DB snapshot found; starting with fresh DB.")
+          PY
 
       - name: Fetch listings
         run: python scripts/fetch_propertyfinder_listings.py
@@ -71,14 +93,26 @@ jobs:
 
             db = Path("data/listings.db")
             gz = Path("data/listings.db.gz")
+            bak = Path("data/listings.db.bak.gz")
+            tmp = Path("data/listings.db.tmp.gz")
 
             conn = sqlite3.connect(str(db))
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             conn.execute("VACUUM")
+            check = conn.execute("PRAGMA integrity_check").fetchone()[0]
             conn.close()
+            if check != "ok":
+                raise RuntimeError(f"SQLite integrity_check failed: {check}")
 
-            with db.open("rb") as src, gzip.open(gz, "wb", compresslevel=9) as dst:
+            with db.open("rb") as src, gzip.open(tmp, "wb", compresslevel=9) as dst:
                 shutil.copyfileobj(src, dst)
+            # Validate gzip content can be read.
+            with gzip.open(tmp, "rb") as src:
+                src.read(1024)
+
+            if gz.exists():
+                shutil.copy2(gz, bak)
+            tmp.replace(gz)
 
             print(f"Compressed {db.stat().st_size} bytes -> {gz.stat().st_size} bytes")
             PY
@@ -95,6 +129,7 @@ jobs:
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git add data/dashboard_data.json
           [ -f data/listings.db.gz ] && git add -f data/listings.db.gz
+          [ -f data/listings.db.bak.gz ] && git add -f data/listings.db.bak.gz
           for f in "data/Multiple Cities - multiple unit types - sales data.json" "data/Multiple Cities - multiple unit types - rental data.json"; do
             [ -f "$f" ] && git add "$f"
           done
@@ -104,6 +139,17 @@ jobs:
             git commit -m "Daily data refresh ($(date -u +'%Y-%m-%d %H:%M UTC'))"
             git push origin HEAD:main
           fi
+
+      - name: Upload DB snapshots as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: listings-db-snapshots
+          path: |
+            data/listings.db.gz
+            data/listings.db.bak.gz
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Notify on success (optional)
         if: success()
