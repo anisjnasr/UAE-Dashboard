@@ -3,7 +3,7 @@
 # Persists data/dashboard_data.json and compressed DB history (data/listings.db.gz).
 # Optional: add repository secret FORMSPREE_FORM_ID to get an email after each successful run (see README).
 
-name: Daily data refresh
+name: Listing Data Refresh
 
 on:
   schedule:
