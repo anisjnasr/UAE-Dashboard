@@ -84,41 +84,41 @@ jobs:
 
       - name: Compress listings DB for Git persistence
         run: |
-          if [ -f data/listings.db ]; then
-            python - <<'PY'
-            import sqlite3
-            from pathlib import Path
-            import gzip
-            import shutil
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          import gzip
+          import shutil
 
-            db = Path("data/listings.db")
-            gz = Path("data/listings.db.gz")
-            bak = Path("data/listings.db.bak.gz")
-            tmp = Path("data/listings.db.tmp.gz")
+          db = Path("data/listings.db")
+          gz = Path("data/listings.db.gz")
+          bak = Path("data/listings.db.bak.gz")
+          tmp = Path("data/listings.db.tmp.gz")
 
-            conn = sqlite3.connect(str(db))
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            conn.execute("VACUUM")
-            check = conn.execute("PRAGMA integrity_check").fetchone()[0]
-            conn.close()
-            if check != "ok":
-                raise RuntimeError(f"SQLite integrity_check failed: {check}")
+          if not db.exists():
+              print("No listings.db generated; skipping compression.")
+              raise SystemExit(0)
 
-            with db.open("rb") as src, gzip.open(tmp, "wb", compresslevel=9) as dst:
-                shutil.copyfileobj(src, dst)
-            # Validate gzip content can be read.
-            with gzip.open(tmp, "rb") as src:
-                src.read(1024)
+          conn = sqlite3.connect(str(db))
+          conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+          conn.execute("VACUUM")
+          check = conn.execute("PRAGMA integrity_check").fetchone()[0]
+          conn.close()
+          if check != "ok":
+              raise RuntimeError(f"SQLite integrity_check failed: {check}")
 
-            if gz.exists():
-                shutil.copy2(gz, bak)
-            tmp.replace(gz)
+          with db.open("rb") as src, gzip.open(tmp, "wb", compresslevel=9) as dst:
+              shutil.copyfileobj(src, dst)
+          # Validate gzip content can be read.
+          with gzip.open(tmp, "rb") as src:
+              src.read(1024)
 
-            print(f"Compressed {db.stat().st_size} bytes -> {gz.stat().st_size} bytes")
-            PY
-          else
-            echo "No listings.db generated; skipping compression."
-          fi
+          if gz.exists():
+              shutil.copy2(gz, bak)
+          tmp.replace(gz)
+
+          print(f"Compressed {db.stat().st_size} bytes -> {gz.stat().st_size} bytes")
+          PY
 
       - name: Commit and push data
         env:
