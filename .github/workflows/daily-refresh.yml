@@ -37,6 +37,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install Playwright (Property Finder bot check)
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
       - name: Record start time
         run: date +%s > .refresh_start_ts
 

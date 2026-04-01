@@ -25,20 +25,66 @@ DEFAULT_RENTAL_URL = (
     "&bdr[]=2&fu=0&rp=y&ob=mr"
 )
 
+# Match the Playwright context so cookie-backed urllib requests stay consistent.
+PLAYWRIGHT_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": PLAYWRIGHT_UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
+# Property Finder sits behind AWS WAF. A plain HTTP client gets a challenge page (no __NEXT_DATA__).
+# Headless Chromium with light stealth passes the JS check; we then reuse cookies for pagination.
+STEALTH_INIT = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+"""
 
-def fetch_html(url, retries=3, delay_s=2):
+
+def bootstrap_waf_session(page_url):
+    """Run headless Chromium past AWS WAF; return (Cookie header string, HTML for first page)."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright is required to pass Property Finder bot protection. "
+            "Install: pip install playwright && playwright install chromium"
+        ) from exc
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(
+            locale="en-US",
+            viewport={"width": 1365, "height": 900},
+            user_agent=PLAYWRIGHT_UA,
+        )
+        context.add_init_script(STEALTH_INIT)
+        page = context.new_page()
+        page.goto(page_url, wait_until="domcontentloaded", timeout=120000)
+        page.wait_for_selector("#__NEXT_DATA__", state="attached", timeout=120000)
+        html = page.content()
+        cookies = context.cookies()
+        browser.close()
+    cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+    return cookie_header, html
+
+
+def fetch_html(url, retries=3, delay_s=2, cookie_header=None):
     last_exc = None
+    hdrs = dict(HEADERS)
+    if cookie_header:
+        hdrs["Cookie"] = cookie_header
     for attempt in range(1, retries + 1):
         try:
-            req = Request(url, headers=HEADERS)
+            req = Request(url, headers=hdrs)
             with urlopen(req, timeout=45) as resp:
                 return resp.read().decode("utf-8", errors="replace")
         except Exception as exc:
@@ -49,10 +95,38 @@ def fetch_html(url, retries=3, delay_s=2):
 
 
 def extract_next_data(html):
-    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S)
-    if not m:
-        raise RuntimeError("Could not find __NEXT_DATA__ payload in HTML")
-    return json.loads(m.group(1))
+    """Parse Next.js __NEXT_DATA__ without regex-to-</script> (JSON may contain that substring)."""
+    marker = '<script id="__NEXT_DATA__"'
+    i = html.find(marker)
+    if i < 0:
+        preview = re.sub(r"\s+", " ", html[:400]).strip()
+        raise RuntimeError(
+            "Could not find __NEXT_DATA__ payload in HTML "
+            f"(likely WAF or layout change). Preview: {preview!r}"
+        )
+    j = html.find(">", i)
+    if j < 0:
+        raise RuntimeError("Malformed __NEXT_DATA__ script opening tag")
+    j += 1
+    brace = html.find("{", j)
+    if brace < 0:
+        raise RuntimeError("No JSON object start in __NEXT_DATA__ script")
+    try:
+        data, _end = json.JSONDecoder().raw_decode(html[brace:])
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Invalid __NEXT_DATA__ JSON: {exc}") from exc
+    return data
+
+
+def fetch_search_json(url, cookie_header):
+    """Load a search results page and return (__NEXT_DATA__ dict, maybe-refreshed cookie header)."""
+    html = fetch_html(url, cookie_header=cookie_header)
+    try:
+        return extract_next_data(html), cookie_header
+    except RuntimeError:
+        cookie_header, _ = bootstrap_waf_session(url)
+        html = fetch_html(url, cookie_header=cookie_header)
+        return extract_next_data(html), cookie_header
 
 
 def page_url(base_url, page):
@@ -130,16 +204,31 @@ def infer_city(all_rows):
 
 
 def run_query(kind, url, out_dir, max_pages=0):
-    html = fetch_html(url)
-    first = extract_next_data(html)
-    first_props = (((first.get("props") or {}).get("pageProps") or {}).get("searchResult") or {}).get("properties") or []
+    print(f"{kind}: obtaining WAF session (Playwright)...")
+    cookies, html = bootstrap_waf_session(url)
+    try:
+        first = extract_next_data(html)
+    except RuntimeError:
+        first, cookies = fetch_search_json(url, cookies)
+        html = fetch_html(url, cookie_header=cookies)
+    sr0 = ((first.get("props") or {}).get("pageProps") or {}).get("searchResult") or {}
+    first_props = sr0.get("properties") or []
     if not first_props:
         raise RuntimeError(f"No properties returned on first page for {kind}")
 
-    per_page = len(first_props)
-    total_match = re.search(r"([\d,]+)\s*properties", html, re.I)
-    total_expected = int(total_match.group(1).replace(",", "")) if total_match else 0
-    total_pages = max(1, (total_expected + per_page - 1) // per_page) if total_expected else 1
+    meta = sr0.get("meta") or {}
+    per_page = int(meta.get("per_page") or len(first_props) or 1)
+    total_expected = int(meta.get("total_count") or 0)
+    if meta.get("page_count") is not None:
+        total_pages = max(1, int(meta["page_count"]))
+    elif total_expected and per_page:
+        total_pages = max(1, (total_expected + per_page - 1) // per_page)
+    else:
+        total_match = re.search(r"([\d,]+)\s*properties", html, re.I)
+        total_expected = int(total_match.group(1).replace(",", "")) if total_match else total_expected
+        total_pages = (
+            max(1, (total_expected + per_page - 1) // per_page) if total_expected else 1
+        )
     if max_pages and max_pages > 0:
         total_pages = min(total_pages, max_pages)
 
@@ -148,8 +237,7 @@ def run_query(kind, url, out_dir, max_pages=0):
 
     for page in range(2, total_pages + 1):
         try:
-            page_html = fetch_html(page_url(url, page))
-            page_data = extract_next_data(page_html)
+            page_data, cookies = fetch_search_json(page_url(url, page), cookies)
             page_props = (
                 (((page_data.get("props") or {}).get("pageProps") or {}).get("searchResult") or {}).get("properties")
                 or []
