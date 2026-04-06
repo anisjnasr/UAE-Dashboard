@@ -24,6 +24,9 @@ jobs:
     timeout-minutes: 120
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      DB_RETENTION_SNAPSHOTS: "14"
+      DB_MIN_RETENTION_SNAPSHOTS: "7"
+      DB_GZ_MAX_BYTES: "95000000"
 
     steps:
       - name: Checkout repository
@@ -91,6 +94,7 @@ jobs:
       - name: Compress listings DB for Git persistence
         run: |
           python - <<'PY'
+          import os
           import sqlite3
           from pathlib import Path
           import gzip
@@ -100,24 +104,127 @@ jobs:
           gz = Path("data/listings.db.gz")
           bak = Path("data/listings.db.bak.gz")
           tmp = Path("data/listings.db.tmp.gz")
+          retention_snapshots = int(os.getenv("DB_RETENTION_SNAPSHOTS", "14"))
+          min_retention_snapshots = int(os.getenv("DB_MIN_RETENTION_SNAPSHOTS", "7"))
+          max_gz_bytes = int(os.getenv("DB_GZ_MAX_BYTES", "95000000"))
+          min_retention_snapshots = max(1, min(min_retention_snapshots, retention_snapshots))
 
           if not db.exists():
               print("No listings.db generated; skipping compression.")
               raise SystemExit(0)
 
+          pre_db_size = db.stat().st_size
           conn = sqlite3.connect(str(db))
-          conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-          conn.execute("VACUUM")
-          check = conn.execute("PRAGMA integrity_check").fetchone()[0]
-          conn.close()
-          if check != "ok":
-              raise RuntimeError(f"SQLite integrity_check failed: {check}")
+          listing_snapshot_count = conn.execute(
+              "SELECT COUNT(DISTINCT snapshot_date) FROM listing_history"
+          ).fetchone()[0]
+          rental_snapshot_count = conn.execute(
+              "SELECT COUNT(DISTINCT snapshot_date) FROM rental_history"
+          ).fetchone()[0]
+          print(
+              "Before prune:",
+              f"listing snapshots={listing_snapshot_count},",
+              f"rental snapshots={rental_snapshot_count},",
+              f"db_size={pre_db_size} bytes",
+          )
 
-          with db.open("rb") as src, gzip.open(tmp, "wb", compresslevel=9) as dst:
-              shutil.copyfileobj(src, dst)
-          # Validate gzip content can be read.
-          with gzip.open(tmp, "rb") as src:
-              src.read(1024)
+          def prune_to_keep(conn, keep_count):
+              if keep_count <= 0:
+                  return
+              listing_keep = [
+                  row[0]
+                  for row in conn.execute(
+                      "SELECT DISTINCT snapshot_date FROM listing_history "
+                      "ORDER BY snapshot_date DESC LIMIT ?",
+                      (keep_count,),
+                  ).fetchall()
+              ]
+              rental_keep = [
+                  row[0]
+                  for row in conn.execute(
+                      "SELECT DISTINCT snapshot_date FROM rental_history "
+                      "ORDER BY snapshot_date DESC LIMIT ?",
+                      (keep_count,),
+                  ).fetchall()
+              ]
+
+              if listing_keep:
+                  marks = ",".join("?" for _ in listing_keep)
+                  conn.execute(
+                      f"DELETE FROM listing_history WHERE snapshot_date NOT IN ({marks})",
+                      listing_keep,
+                  )
+                  conn.execute(
+                      f"DELETE FROM price_index WHERE snapshot_date NOT IN ({marks})",
+                      listing_keep,
+                  )
+                  conn.execute(
+                      "DELETE FROM price_drops WHERE listing_id NOT IN "
+                      "(SELECT DISTINCT listing_id FROM listing_history)"
+                  )
+
+              if rental_keep:
+                  marks = ",".join("?" for _ in rental_keep)
+                  conn.execute(
+                      f"DELETE FROM rental_history WHERE snapshot_date NOT IN ({marks})",
+                      rental_keep,
+                  )
+                  conn.execute(
+                      f"DELETE FROM rental_index WHERE snapshot_date NOT IN ({marks})",
+                      rental_keep,
+                  )
+                  conn.execute(
+                      "DELETE FROM rental_drops WHERE listing_id NOT IN "
+                      "(SELECT DISTINCT listing_id FROM rental_history)"
+                  )
+              conn.commit()
+
+          keep_count = retention_snapshots
+          final_gz_size = None
+          while True:
+              prune_to_keep(conn, keep_count)
+              conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+              conn.execute("VACUUM")
+              check = conn.execute("PRAGMA integrity_check").fetchone()[0]
+              if check != "ok":
+                  raise RuntimeError(f"SQLite integrity_check failed: {check}")
+
+              listing_snapshot_count = conn.execute(
+                  "SELECT COUNT(DISTINCT snapshot_date) FROM listing_history"
+              ).fetchone()[0]
+              rental_snapshot_count = conn.execute(
+                  "SELECT COUNT(DISTINCT snapshot_date) FROM rental_history"
+              ).fetchone()[0]
+
+              with db.open("rb") as src, gzip.open(tmp, "wb", compresslevel=9) as dst:
+                  shutil.copyfileobj(src, dst)
+              # Validate gzip content can be read.
+              with gzip.open(tmp, "rb") as src:
+                  src.read(1024)
+
+              final_gz_size = tmp.stat().st_size
+              print(
+                  "Prune/compress pass:",
+                  f"keep={keep_count},",
+                  f"listing snapshots={listing_snapshot_count},",
+                  f"rental snapshots={rental_snapshot_count},",
+                  f"db_size={db.stat().st_size} bytes,",
+                  f"gz_size={final_gz_size} bytes,",
+                  f"gz_limit={max_gz_bytes} bytes",
+              )
+
+              if final_gz_size <= max_gz_bytes:
+                  break
+              if keep_count <= min_retention_snapshots:
+                  print(
+                      f"Reached minimum retention ({min_retention_snapshots}) "
+                      f"and gz is still above safe limit."
+                  )
+                  break
+              keep_count = max(min_retention_snapshots, keep_count - 2)
+              print(f"Reducing retention and retrying compression: next keep={keep_count}")
+
+          conn.close()
 
           if gz.exists():
               shutil.copy2(gz, bak)
@@ -135,8 +242,18 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git add data/dashboard_data.json
-          [ -f data/listings.db.gz ] && git add -f data/listings.db.gz
-          [ -f data/listings.db.bak.gz ] && git add -f data/listings.db.bak.gz
+          MAX_DB_GZ_BYTES="${DB_GZ_MAX_BYTES:-95000000}"
+          for f in data/listings.db.gz data/listings.db.bak.gz; do
+            if [ -f "$f" ]; then
+              file_size=$(python -c "from pathlib import Path; print(Path('$f').stat().st_size)")
+              echo "${f} size=${file_size} bytes (limit=${MAX_DB_GZ_BYTES})"
+              if [ "$file_size" -le "$MAX_DB_GZ_BYTES" ]; then
+                git add -f "$f"
+              else
+                echo "::warning::Skipping ${f}: exceeds safe git threshold (${MAX_DB_GZ_BYTES} bytes)."
+              fi
+            fi
+          done
           for f in "data/Multiple Cities - multiple unit types - sales data.json" "data/Multiple Cities - multiple unit types - rental data.json"; do
             [ -f "$f" ] && git add "$f"
           done
@@ -146,17 +263,31 @@ jobs:
             git commit -m "Listing data refresh ($(date -u +'%Y-%m-%d %H:%M UTC'))"
             for attempt in 1 2 3; do
               echo "Push attempt ${attempt}..."
-              if git push origin HEAD:main; then
+              push_output=""
+              if push_output=$(git push origin HEAD:main 2>&1); then
+                echo "$push_output"
                 echo "Push succeeded."
                 break
               fi
+              echo "$push_output"
               if [ "$attempt" -eq 3 ]; then
                 echo "Push failed after retries."
                 exit 1
               fi
-              echo "Remote moved; rebasing onto latest main and retrying."
-              git fetch origin main
-              git rebase origin/main
+
+              if [[ "$push_output" == *"GH001"* || "$push_output" == *"Large files detected"* || "$push_output" == *"exceeds GitHub's file size limit"* || "$push_output" == *"Permission denied"* || "$push_output" == *"Authentication failed"* || "$push_output" == *"Repository not found"* || "$push_output" == *"403"* ]]; then
+                echo "Push failed with non-retryable error."
+                exit 1
+              fi
+
+              if [[ "$push_output" == *"non-fast-forward"* || "$push_output" == *"fetch first"* || "$push_output" == *"stale info"* ]]; then
+                echo "Remote moved; rebasing onto latest main and retrying."
+                git pull --rebase --autostash origin main
+                continue
+              fi
+
+              echo "Push failed with non-retryable error."
+              exit 1
             done
           fi
 
