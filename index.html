@@ -130,6 +130,9 @@
     .info-i:hover { color: var(--text-bright); border-color: var(--info-hover-border); }
     .info-popup { position: fixed; background: var(--popup-bg); color: var(--text); border: 1px solid var(--popup-border); border-radius: 8px; padding: 12px 16px; font-size: 13px; font-style: normal; font-weight: 400; line-height: 1.6; max-width: 380px; z-index: 1000; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
     .drop-val { color: var(--accent-red); font-weight: 600; }
+    .chg-pos { color: var(--accent-green); font-weight: 600; }
+    .chg-neg { color: var(--accent-red); font-weight: 600; }
+    .chg-zero { color: var(--text-dim); font-weight: 500; }
     .bld-link { color: var(--text-bright); text-decoration: none; border-bottom: 1px dotted var(--link-border); }
     .bld-link:hover { color: var(--accent-blue); border-color: var(--accent-blue); }
     .sep { width: 1px; height: 22px; background: var(--sep); margin: 0 6px; }
@@ -421,17 +424,85 @@
         return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
       }
 
-      function renderListingDetail(type, id) {
+      function sortHistoryDesc(hist) {
+        if (!hist || !hist.length) return [];
+        return hist.slice().sort((a, b) => {
+          const da = parseDashboardDate(a[0]);
+          const db = parseDashboardDate(b[0]);
+          if (!da && !db) return 0;
+          if (!da) return 1;
+          if (!db) return -1;
+          return db - da;
+        });
+      }
+
+      function fmtSignedMoneyHtml(n) {
+        if (n == null || n === '' || !isFinite(Number(n))) return '\u2014';
+        const v = Number(n);
+        if (v === 0) return '<span class="chg-zero">0</span>';
+        const cls = v > 0 ? 'chg-pos' : 'chg-neg';
+        const sign = v > 0 ? '+' : '\u2212';
+        return '<span class="'+cls+'">'+sign+fmt(Math.abs(v))+'</span>';
+      }
+
+      function fmtSignedPctHtml(n) {
+        if (n == null || n === '' || !isFinite(Number(n))) return '\u2014';
+        const v = Number(n);
+        if (Math.abs(v) < 1e-9) return '<span class="chg-zero">0.0%</span>';
+        const cls = v > 0 ? 'chg-pos' : 'chg-neg';
+        const sign = v > 0 ? '+' : '';
+        return '<span class="'+cls+'">'+sign+v.toFixed(1)+'%</span>';
+      }
+
+      function renderHistoryTableBlock(title, valueLabel, sortedHist) {
+        let h = '';
+        h += '<div class="table-wrap" style="flex:1;min-width:280px;margin:0"><h2 style="font-size:15px;margin:0 0 10px 0;color:var(--text-bright)">'+title+'</h2>';
+        if (!sortedHist.length) {
+          h += '<div style="padding:16px;color:var(--text-muted);font-size:13px">No snapshots yet.</div></div>';
+          return h;
+        }
+        h += '<table><thead><tr>';
+        h += '<th class="left">Date</th><th>'+valueLabel+'</th><th>Chg (AED)</th><th>Chg (%)</th></tr></thead><tbody>';
+        for (let i = 0; i < sortedHist.length; i++) {
+          const row = sortedHist[i];
+          const date = row[0], value = row[1];
+          const older = i < sortedHist.length - 1 ? sortedHist[i + 1][1] : null;
+          let stepChg = null, stepPct = null;
+          if (older != null) {
+            stepChg = value - older;
+            stepPct = older > 0 ? (stepChg / older) * 100 : null;
+          }
+          const label = i === sortedHist.length - 1 ? 'Original' : '';
+          const bg = i % 2 === 0 ? 'var(--bg-row-even)' : 'var(--bg-row-odd)';
+          h += '<tr style="background:'+bg+'">';
+          h += '<td class="left">'+fmtTrackerDate(date)+(label ? ' <span style="color:var(--text-faint);font-size:12px">'+label+'</span>' : '')+'</td>';
+          h += '<td>'+fmt(value)+'</td>';
+          h += '<td>'+(stepChg != null ? fmtSignedMoneyHtml(stepChg) : '\u2014')+'</td>';
+          h += '<td>'+(stepPct != null && isFinite(stepPct) ? fmtSignedPctHtml(stepPct) : '\u2014')+'</td></tr>';
+        }
+        h += '</tbody></table></div>';
+        return h;
+      }
+
+      function renderListingDetail(id) {
         const RAW = window.RAW;
         if (!RAW) { document.getElementById('root').innerHTML = '<div style="color:var(--accent-red)">Loading data...</div>'; return; }
         const AREAS = RAW.a || [];
         const DROPS = (RAW.d||[]).map(d => ({ id: String(d[0]), building: d[1], area: AREAS[d[2]]||'', city: d[22]||'Dubai', url: d[23]||'' }));
         const RENTAL_DROPS = (RAW.rd||[]).map(d => ({ id: String(d[0]), building: d[1], area: AREAS[d[2]]||'', city: d[16]||'Dubai', url: d[17]||'' }));
-        const rec = type === 'rental' ? RENTAL_DROPS.find(d => d.id === id) : DROPS.find(d => d.id === id);
-        const history = type === 'rental' ? (RAW.rh || {})[id] : (RAW.ph || {})[id];
-        const isRental = type === 'rental';
-        const valueLabel = isRental ? 'Annual rent (AED)' : 'Price (AED)';
-        let h = '<div style="max-width:800px">';
+        function headerFromListings() {
+          const rows = RAW.l || [];
+          for (let j = 0; j < rows.length; j++) {
+            const l = rows[j];
+            if (String(l[13]||'') !== id) continue;
+            return { building: l[0], area: AREAS[l[1]]||'', city: l[10]||'Dubai', url: l[12]||'' };
+          }
+          return null;
+        }
+        const rec = DROPS.find(d => d.id === id) || RENTAL_DROPS.find(d => d.id === id) || headerFromListings();
+        const ph = sortHistoryDesc((RAW.ph || {})[id] || []);
+        const rh = sortHistoryDesc((RAW.rh || {})[id] || []);
+        let h = '<div style="max-width:1100px">';
         h += '<div style="margin-bottom:16px"><a href="#" id="listingDetailBack" style="color:var(--accent-blue);text-decoration:none;font-size:14px">&larr; Back to dashboard</a></div>';
         if (!rec) {
           h += '<div style="color:var(--text-muted)">Listing not found.</div></div>';
@@ -441,38 +512,27 @@
         }
         const bLink = rec.url ? '<a href="'+rec.url+'" target="_blank" class="bld-link">'+rec.building+'</a>' : rec.building;
         h += '<h1 style="font-size:22px;margin-bottom:4px">'+bLink+'</h1>';
-        h += '<div style="color:var(--text-muted);font-size:14px;margin-bottom:20px">'+rec.area+' &middot; '+rec.city+(isRental ? ' &middot; Rental' : '')+'</div>';
-        if (!history || history.length === 0) {
-          h += '<div style="color:var(--text-muted)">No price history available.</div></div>';
+        h += '<div style="color:var(--text-muted);font-size:14px;margin-bottom:20px">'+rec.area+' &middot; '+rec.city+'</div>';
+        if (!ph.length && !rh.length) {
+          h += '<div style="color:var(--text-muted)">No price or rental history for this listing.</div></div>';
           document.getElementById('root').innerHTML = h;
           document.getElementById('listingDetailBack').onclick = function(e){ e.preventDefault(); location.hash=''; render(); };
           return;
         }
-        h += '<div class="table-wrap"><table><thead><tr>';
-        h += '<th class="left">Date</th><th>'+valueLabel+'</th><th>Drop (AED)</th><th>Drop (%)</th></tr></thead><tbody>';
-        for (let i = 0; i < history.length; i++) {
-          const row = history[i];
-          const date = row[0], value = row[1];
-          const prev = i > 0 ? history[i-1][1] : null;
-          const drop = prev != null ? prev - value : 0;
-          const dropPct = (prev != null && prev > 0 && drop > 0) ? ((drop / prev) * 100).toFixed(1) : '\u2014';
-          const label = i === 0 ? 'Original' : '';
-          const bg = i % 2 === 0 ? 'var(--bg-row-even)' : 'var(--bg-row-odd)';
-          h += '<tr style="background:'+bg+'">';
-          h += '<td class="left">'+fmtTrackerDate(date)+(label ? ' <span style="color:var(--text-faint);font-size:12px">'+label+'</span>' : '')+'</td>';
-          h += '<td>'+fmt(value)+'</td>';
-          h += '<td>'+(drop > 0 ? '<span class="drop-val">-'+fmt(drop)+'</span>' : '\u2014')+'</td>';
-          h += '<td>'+(dropPct !== '\u2014' ? '<span class="drop-val">-'+dropPct+'%</span>' : '\u2014')+'</td></tr>';
-        }
-        h += '</tbody></table></div></div>';
+        h += '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">';
+        h += renderHistoryTableBlock('Sale price history', 'Price (AED)', ph);
+        h += renderHistoryTableBlock('Rental history', 'Annual rent (AED)', rh);
+        h += '</div></div>';
         document.getElementById('root').innerHTML = h;
         document.getElementById('listingDetailBack').onclick = function(e){ e.preventDefault(); location.hash=''; render(); };
       }
 
       function render() {
         const hash = (location.hash || '').replace(/^#/, '');
-        const m = hash.match(/^listing\/(sales|rental)\/(.+)$/);
-        if (m) { renderListingDetail(m[1], m[2]); return; }
+        let lm = hash.match(/^listing\/(sales|rental)\/(.+)$/);
+        if (lm) { renderListingDetail(lm[2]); return; }
+        lm = hash.match(/^listing\/(.+)$/);
+        if (lm) { renderListingDetail(lm[1]); return; }
         const RAW = window.RAW;
         if (!RAW || !RAW.l) { document.getElementById('root').innerHTML = '<div style="color:var(--accent-red);font-size:15px">Failed to load data.</div>'; return; }
         const T = tierColors();
@@ -485,6 +545,8 @@
           building: l[0], area: AREAS[l[1]]||'', price: l[2], sqft: l[3],
           furnished: l[4], grossYield: l[5], netYield: l[6], tier: l[7], conf: l[8],
           scPsf: l[9]||12, city: l[10]||'Dubai', beds: l[11]||'Unknown', url: l[12]||'',
+          id: String(l[13]||''),
+          netChg: l[14], netChgPct: l[15], chgCount: l[16]||0,
           psf: l[3] ? Math.round(l[2]/l[3]) : 0
         }));
         const SUMMARIES = (RAW.s||[]).map(s => ({
@@ -496,16 +558,16 @@
         const DROPS = (RAW.d||[]).map(d => ({
           id: String(d[0]), building: d[1], area: AREAS[d[2]]||'', sqft: d[3], beds: d[4], furnished: d[5],
           firstPrice: d[6], prevPrice: d[7], curPrice: d[8],
-          dropPrev: d[9], dropPctPrev: d[10], totalDrop: d[11], totalDropPct: d[12],
-          dropCount: d[13], oldGY: d[14], oldNY: d[15], newGY: d[16], newNY: d[17],
-          tier: d[18], scPsf: d[19], firstSeen: d[20], lastDrop: d[21],
+          lastDelta: d[9], lastDeltaPct: d[10], netChg: d[11], netChgPct: d[12],
+          chgCount: d[13], oldGY: d[14], oldNY: d[15], newGY: d[16], newNY: d[17],
+          tier: d[18], scPsf: d[19], firstSeen: d[20], lastChange: d[21],
           city: d[22]||'Dubai', url: d[23]||'', psf: d[3] ? Math.round(d[8]/d[3]) : 0
         }));
         const RENTAL_DROPS = (RAW.rd||[]).map(d => ({
           id: String(d[0]), building: d[1], area: AREAS[d[2]]||'', sqft: d[3], beds: d[4], furnished: d[5],
           firstRent: d[6], prevRent: d[7], curRent: d[8],
-          dropPrev: d[9], dropPctPrev: d[10], totalDrop: d[11], totalDropPct: d[12],
-          dropCount: d[13], firstSeen: d[14], lastDrop: d[15],
+          lastDelta: d[9], lastDeltaPct: d[10], netChg: d[11], netChgPct: d[12],
+          chgCount: d[13], firstSeen: d[14], lastChange: d[15],
           city: d[16]||'Dubai', url: d[17]||'', tier: d[18]||'X',
           rpsf: d[3] ? Math.round(d[8]/d[3]) : 0
         }));
@@ -536,7 +598,7 @@
           view:'listings', confF:'All',
           minY:0, minPrice:0, maxPrice:2000000, minSqft:0, maxSqft:0, pg:0, dpg:0, rdpg:0,
           sk:'netYield', sd:'desc', ask:'medPrice', asd:'asc',
-          dsk:'totalDropPct', dsd:'desc', PP:50,
+          dsk:'netChgPct', dsd:'desc', PP:50,
           dropView:'sales', areaExpanded:false,
           indexType:'sales'
         };
@@ -548,6 +610,7 @@
         if (!['areas','listings'].includes(S.view)) S.view = 'listings';
         if (!['sales','rental'].includes(S.dropView)) S.dropView = 'sales';
         if (!['sales','rental'].includes(S.indexType)) S.indexType = 'sales';
+        if (['totalDropPct','totalDrop','dropPrev','dropPctPrev'].includes(S.dsk)) S.dsk = 'netChgPct';
 
         let fl = LISTINGS;
         if (S.cityF !== 'All') fl = fl.filter(l => l.city === S.cityF);
@@ -648,22 +711,22 @@
           minGY: fl.length ? Math.min(...fl.map(l=>l.grossYield)) : 0,
           P: fl.filter(l=>l.tier==='P').length, E: fl.filter(l=>l.tier==='E').length,
           M: fl.filter(l=>l.tier==='M').length, X: fl.filter(l=>l.tier==='X').length,
-          medPctDrop: fd.length ? medianArr(fd.map(d=>d.totalDropPct)) : 0,
-          bigPctDrop: fd.length ? Math.max(...fd.map(d=>d.totalDropPct)) : 0,
-          bigAedDrop: fd.length ? Math.max(...fd.map(d=>d.totalDrop)) : 0,
-          bigPctDropUrl: fd.length ? fd.reduce((best,d)=>d.totalDropPct>best.totalDropPct?d:best,fd[0]).url : '',
-          bigAedDropUrl: fd.length ? fd.reduce((best,d)=>d.totalDrop>best.totalDrop?d:best,fd[0]).url : '',
+          medPctDrop: fd.length ? medianArr(fd.map(d=>Math.abs(Number(d.netChgPct)||0))) : 0,
+          bigPctDrop: fd.length ? Math.max(...fd.map(d=>Math.abs(Number(d.netChgPct)||0))) : 0,
+          bigAedDrop: fd.length ? Math.max(...fd.map(d=>Math.abs(Number(d.netChg)||0))) : 0,
+          bigPctDropUrl: fd.length ? ('#listing/'+fd.reduce((best,d)=>(Math.abs(Number(d.netChgPct)||0)>Math.abs(Number(best.netChgPct)||0)?d:best),fd[0]).id) : '',
+          bigAedDropUrl: fd.length ? ('#listing/'+fd.reduce((best,d)=>(Math.abs(Number(d.netChg)||0)>Math.abs(Number(best.netChg)||0)?d:best),fd[0]).id) : '',
           dropCount: fd.length,
           rentDropCount: frd.length,
-          rentMedPctDrop: frd.length ? medianArr(frd.map(d=>d.totalDropPct)) : 0,
-          rentBigPctDrop: frd.length ? Math.max(...frd.map(d=>d.totalDropPct)) : 0,
-          rentBigAedDrop: frd.length ? Math.max(...frd.map(d=>d.totalDrop)) : 0,
-          rentBigPctDropUrl: frd.length ? frd.reduce((best,d)=>d.totalDropPct>best.totalDropPct?d:best,frd[0]).url : '',
-          rentBigAedDropUrl: frd.length ? frd.reduce((best,d)=>d.totalDrop>best.totalDrop?d:best,frd[0]).url : '',
+          rentMedPctDrop: frd.length ? medianArr(frd.map(d=>Math.abs(Number(d.netChgPct)||0))) : 0,
+          rentBigPctDrop: frd.length ? Math.max(...frd.map(d=>Math.abs(Number(d.netChgPct)||0))) : 0,
+          rentBigAedDrop: frd.length ? Math.max(...frd.map(d=>Math.abs(Number(d.netChg)||0))) : 0,
+          rentBigPctDropUrl: frd.length ? ('#listing/'+frd.reduce((best,d)=>(Math.abs(Number(d.netChgPct)||0)>Math.abs(Number(best.netChgPct)||0)?d:best),frd[0]).id) : '',
+          rentBigAedDropUrl: frd.length ? ('#listing/'+frd.reduce((best,d)=>(Math.abs(Number(d.netChg)||0)>Math.abs(Number(best.netChg)||0)?d:best),frd[0]).id) : '',
           dubaiN: LISTINGS.filter(l=>l.city==='Dubai').length,
           adN: LISTINGS.filter(l=>l.city==='Abu Dhabi').length,
-          dropCount24: (function(){ const snap = (updatedAtRaw||'').split('T')[0]; return fd.filter(d=>(d.lastDrop||'').split('T')[0]===snap).length; })(),
-          rentDropCount24: (function(){ const snap = (updatedAtRaw||'').split('T')[0]; return frd.filter(d=>(d.lastDrop||'').split('T')[0]===snap).length; })(),
+          dropCount24: Number(RAW.d24) || 0,
+          rentDropCount24: Number(RAW.rd24) || 0,
           rmin: Number(RAW.rmin) || 0,
           rmax: Number(RAW.rmax) || 0,
           rmed: Number(RAW.rmed) || 0,
@@ -724,12 +787,12 @@
 
         var bigPctVal = st.bigPctDrop>0 ? st.bigPctDrop.toFixed(1)+'%' : '\u2014';
         var bigAedVal = st.bigAedDrop>0 ? fmt(st.bigAedDrop) : '\u2014';
-        if(st.bigPctDropUrl && st.bigPctDrop>0) bigPctVal = '<a href="'+st.bigPctDropUrl+'" target="_blank">'+bigPctVal+'</a>';
-        if(st.bigAedDropUrl && st.bigAedDrop>0) bigAedVal = '<a href="'+st.bigAedDropUrl+'" target="_blank">'+bigAedVal+'</a>';
+        if(st.bigPctDropUrl && st.bigPctDrop>0) bigPctVal = '<a href="'+st.bigPctDropUrl+'" class="bld-link">'+bigPctVal+'</a>';
+        if(st.bigAedDropUrl && st.bigAedDrop>0) bigAedVal = '<a href="'+st.bigAedDropUrl+'" class="bld-link">'+bigAedVal+'</a>';
         var rentBigPctVal = st.rentBigPctDrop>0 ? st.rentBigPctDrop.toFixed(1)+'%' : '\u2014';
         var rentBigAedVal = st.rentBigAedDrop>0 ? fmt(st.rentBigAedDrop) : '\u2014';
-        if(st.rentBigPctDropUrl && st.rentBigPctDrop>0) rentBigPctVal = '<a href="'+st.rentBigPctDropUrl+'" target="_blank">'+rentBigPctVal+'</a>';
-        if(st.rentBigAedDropUrl && st.rentBigAedDrop>0) rentBigAedVal = '<a href="'+st.rentBigAedDropUrl+'" target="_blank">'+rentBigAedVal+'</a>';
+        if(st.rentBigPctDropUrl && st.rentBigPctDrop>0) rentBigPctVal = '<a href="'+st.rentBigPctDropUrl+'" class="bld-link">'+rentBigPctVal+'</a>';
+        if(st.rentBigAedDropUrl && st.rentBigAedDrop>0) rentBigAedVal = '<a href="'+st.rentBigAedDropUrl+'" class="bld-link">'+rentBigAedVal+'</a>';
 
         const priceRange = st.maxP_ > st.minP ? (st.mp - st.minP) / (st.maxP_ - st.minP) : 0.5;
         const priceRangePct = Math.max(0, Math.min(100, priceRange * 100));
@@ -738,20 +801,20 @@
         h += '<div class="kpi-drops-block">';
         h += '<div class="kpi-drops-title">Sale Prices</div>';
         h += '<div class="kpis">';
-        h += '<div class="kpi red"><div class="label">Drops (24hrs)</div><div class="'+valClass(st.dropCount24)+'">'+st.dropCount24.toLocaleString()+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Total Drops</div><div class="value">'+st.dropCount.toLocaleString()+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Median Drop</div><div class="value">'+(st.medPctDrop>0?st.medPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Largest Drop (%)</div><div class="value">'+bigPctVal+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Largest Drop (AED)</div><div class="value">'+bigAedVal+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Chg (24hrs)</div><div class="'+valClass(st.dropCount24)+'">'+st.dropCount24.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Total w/ chg</div><div class="value">'+st.dropCount.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Median |\u0394%|</div><div class="value">'+(st.medPctDrop>0?st.medPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Largest move (%)</div><div class="value">'+bigPctVal+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Largest move (AED)</div><div class="value">'+bigAedVal+'</div></div>';
         h += '</div></div>';
         h += '<div class="kpi-drops-block">';
         h += '<div class="kpi-drops-title">Rental Rates</div>';
         h += '<div class="kpis">';
-        h += '<div class="kpi red"><div class="label">Drops (24hrs)</div><div class="'+valClass(st.rentDropCount24)+'">'+st.rentDropCount24.toLocaleString()+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Total Drops</div><div class="value">'+st.rentDropCount.toLocaleString()+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Median Drop</div><div class="value">'+(st.rentMedPctDrop>0?st.rentMedPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Largest Drop (%)</div><div class="value">'+rentBigPctVal+'</div></div>';
-        h += '<div class="kpi red"><div class="label">Largest Drop (AED)</div><div class="value">'+rentBigAedVal+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Chg (24hrs)</div><div class="'+valClass(st.rentDropCount24)+'">'+st.rentDropCount24.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Total w/ chg</div><div class="value">'+st.rentDropCount.toLocaleString()+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Median |\u0394%|</div><div class="value">'+(st.rentMedPctDrop>0?st.rentMedPctDrop.toFixed(1)+'%':'\u2014')+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Largest move (%)</div><div class="value">'+rentBigPctVal+'</div></div>';
+        h += '<div class="kpi red"><div class="label">Largest move (AED)</div><div class="value">'+rentBigAedVal+'</div></div>';
         h += '</div></div></div>';
         const rentRange = st.rmax > st.rmin ? (st.rmed - st.rmin) / (st.rmax - st.rmin) : 0.5;
         const rentRangePct = Math.max(0, Math.min(100, rentRange * 100));
@@ -907,31 +970,31 @@
         const dropPage = S.dropView === 'rental' ? S.rdpg : S.dpg;
         const safeDropPage = Math.min(dropPage, dropTotalPages - 1);
         const dropPaged = activeDrops.slice(safeDropPage * S.PP, (safeDropPage + 1) * S.PP);
-        h += '<div class="drop-highlight-head"><div class="filter-label" style="margin:0">Market Drops</div><div class="drop-tabs">';
-        h += '<button class="drop-tab'+(S.dropView==='sales'?' active':'')+'" data-dropview="sales">Sales Drops ('+fd.length+')</button>';
-        h += '<button class="drop-tab'+(S.dropView==='rental'?' active':'')+'" data-dropview="rental">Rental Drops ('+frd.length+')</button>';
+        h += '<div class="drop-highlight-head"><div class="filter-label" style="margin:0">Price & rental changes</div><div class="drop-tabs">';
+        h += '<button class="drop-tab'+(S.dropView==='sales'?' active':'')+'" data-dropview="sales">Sale changes ('+fd.length+')</button>';
+        h += '<button class="drop-tab'+(S.dropView==='rental'?' active':'')+'" data-dropview="rental">Rental changes ('+frd.length+')</button>';
         h += '</div></div>';
 
         if (activeDrops.length===0) {
-          h += '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:14px">No drops found for current filters.</div>';
+          h += '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:14px">No changes match current filters.</div>';
         } else if (S.dropView==='sales') {
           h += '<div class="table-wrap drops-table"><table><thead><tr>';
           h += dth('Building / Area','building',true)+dth('Original','firstPrice')+dth('Previous','prevPrice')+dth('Current','curPrice');
-          h += dth('Last Drop','dropPrev')+dth('Last %','dropPctPrev')+dth('Total Drop','totalDrop')+dth('Total %','totalDropPct');
-          h += dth('Drops','dropCount')+dth('Old GY','oldGY')+dth('New GY','newGY')+dth('Old NY','oldNY')+dth('New NY','newNY')+dth('Tier','tier');
+          h += dth('Last \u0394','lastDelta')+dth('Last \u0394 %','lastDeltaPct')+dth('Chg','netChg')+dth('Chg %','netChgPct');
+          h += dth('Chg count','chgCount')+dth('Old GY','oldGY')+dth('New GY','newGY')+dth('Old NY','oldNY')+dth('New NY','newNY')+dth('Tier','tier');
           h += '</tr></thead><tbody>';
-          dropPaged.forEach((d,i)=>{ const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)'; const bName=d.url?'<a href="'+d.url+'" target="_blank" class="bld-link">'+d.building+'</a>':d.building; h += '<tr style="background:'+bg+'"><td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td><td style="color:var(--text-dim)">'+fmt(d.firstPrice)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevPrice)+'</td><td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curPrice)+'</td><td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td><td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td><td><a href="#listing/sales/'+d.id+'" class="bld-link" title="View price tracker">'+d.dropCount+'</a></td><td style="color:var(--text-dim)">'+pct(d.oldGY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newGY)+'</td><td style="color:var(--text-dim)">'+pct(d.oldNY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newNY)+'</td><td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td></tr>'; });
+          dropPaged.forEach((d,i)=>{ const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)'; const bName=d.url?'<a href="'+d.url+'" target="_blank" class="bld-link">'+d.building+'</a>':d.building; h += '<tr style="background:'+bg+'"><td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td><td style="color:var(--text-dim)">'+fmt(d.firstPrice)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevPrice)+'</td><td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curPrice)+'</td><td>'+fmtSignedMoneyHtml(d.lastDelta)+'</td><td>'+fmtSignedPctHtml(d.lastDeltaPct)+'</td><td>'+fmtSignedMoneyHtml(d.netChg)+'</td><td>'+fmtSignedPctHtml(d.netChgPct)+'</td><td><a href="#listing/'+d.id+'" class="bld-link" title="Sale & rental trackers">'+d.chgCount+'</a></td><td style="color:var(--text-dim)">'+pct(d.oldGY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newGY)+'</td><td style="color:var(--text-dim)">'+pct(d.oldNY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newNY)+'</td><td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td></tr>'; });
           h += '</tbody></table></div>';
         } else {
           h += '<div class="table-wrap drops-table"><table><thead><tr>';
           h += dth('Building / Area','building',true)+dth('Original Rent','firstRent')+dth('Previous Rent','prevRent')+dth('Current Rent','curRent');
-          h += dth('Last Drop','dropPrev')+dth('Last %','dropPctPrev')+dth('Total Drop','totalDrop')+dth('Total %','totalDropPct');
-          h += dth('Drops','dropCount')+dth('Rent/sf','rpsf')+dth('Tier','tier');
+          h += dth('Last \u0394','lastDelta')+dth('Last \u0394 %','lastDeltaPct')+dth('Chg','netChg')+dth('Chg %','netChgPct');
+          h += dth('Chg count','chgCount')+dth('Rent/sf','rpsf')+dth('Tier','tier');
           h += '</tr></thead><tbody>';
-          dropPaged.forEach((d,i)=>{ const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)'; const bName=d.url?'<a href="'+d.url+'" target="_blank" class="bld-link">'+d.building+'</a>':d.building; h += '<tr style="background:'+bg+'"><td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td><td style="color:var(--text-dim)">'+fmt(d.firstRent)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevRent)+'</td><td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curRent)+'</td><td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td><td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td><td><a href="#listing/rental/'+d.id+'" class="bld-link" title="View rent tracker">'+d.dropCount+'</a></td><td style="color:var(--text-dim)">'+fmt(d.rpsf)+'</td><td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td></tr>'; });
+          dropPaged.forEach((d,i)=>{ const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)'; const bName=d.url?'<a href="'+d.url+'" target="_blank" class="bld-link">'+d.building+'</a>':d.building; h += '<tr style="background:'+bg+'"><td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td><td style="color:var(--text-dim)">'+fmt(d.firstRent)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevRent)+'</td><td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curRent)+'</td><td>'+fmtSignedMoneyHtml(d.lastDelta)+'</td><td>'+fmtSignedPctHtml(d.lastDeltaPct)+'</td><td>'+fmtSignedMoneyHtml(d.netChg)+'</td><td>'+fmtSignedPctHtml(d.netChgPct)+'</td><td><a href="#listing/'+d.id+'" class="bld-link" title="Sale & rental trackers">'+d.chgCount+'</a></td><td style="color:var(--text-dim)">'+fmt(d.rpsf)+'</td><td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td></tr>'; });
           h += '</tbody></table></div>';
         }
-        h += '<div class="pagination"><span style="color:var(--text-muted)">Showing '+(safeDropPage*S.PP+1)+'\u2013'+Math.min((safeDropPage+1)*S.PP,activeDrops.length)+' of '+activeDrops.length.toLocaleString()+' drops</span>';
+        h += '<div class="pagination"><span style="color:var(--text-muted)">Showing '+(safeDropPage*S.PP+1)+'\u2013'+Math.min((safeDropPage+1)*S.PP,activeDrops.length)+' of '+activeDrops.length.toLocaleString()+' changes</span>';
         h += '<div style="display:flex;gap:4px"><button class="pg-btn" id="prevDropPg"'+(safeDropPage===0?' disabled':'')+'>&larr; Prev</button><span style="padding:4px 10px;color:var(--text-muted)">'+(safeDropPage+1)+'/'+dropTotalPages+'</span><button class="pg-btn" id="nextDropPg"'+(safeDropPage>=dropTotalPages-1?' disabled':'')+ '>Next &rarr;</button></div></div>';
 
         h += '<div style="display:flex;justify-content:center;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">';
@@ -973,12 +1036,12 @@
 
         if(S.view==='drops') {
           if(fd.length===0) {
-            h += '<div style="padding:28px;text-align:center;color:var(--text-muted);font-size:14px">No price drops detected yet. Run process_data.py again after your next data download.</div>';
+            h += '<div style="padding:28px;text-align:center;color:var(--text-muted);font-size:14px">No sale price changes detected yet. Run process_data.py again after your next data download.</div>';
           } else {
             h += '<div class="table-wrap drops-table"><table><thead><tr>';
             h += dth('Building / Area','building',true)+dth('Original','firstPrice')+dth('Previous','prevPrice')+dth('Current','curPrice');
-            h += dth('Last Drop','dropPrev')+dth('Last %','dropPctPrev')+dth('Total Drop','totalDrop')+dth('Total %','totalDropPct');
-            h += dth('Drops','dropCount')+dth('Old GY','oldGY')+dth('New GY','newGY')+dth('Old NY','oldNY')+dth('New NY','newNY')+dth('Tier','tier');
+            h += dth('Last \u0394','lastDelta')+dth('Last \u0394 %','lastDeltaPct')+dth('Chg','netChg')+dth('Chg %','netChgPct');
+            h += dth('Chg count','chgCount')+dth('Old GY','oldGY')+dth('New GY','newGY')+dth('Old NY','oldNY')+dth('New NY','newNY')+dth('Tier','tier');
             h += '</tr></thead><tbody>';
             dPaged.forEach((d,i) => {
               const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)';
@@ -987,28 +1050,28 @@
               h += '<td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td>';
               h += '<td style="color:var(--text-dim)">'+fmt(d.firstPrice)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevPrice)+'</td>';
               h += '<td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curPrice)+'</td>';
-              h += '<td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td>';
-              h += '<td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td>';
-              h += '<td><a href="#listing/sales/'+d.id+'" class="bld-link" title="View price tracker">'+d.dropCount+'</a></td>';
+              h += '<td>'+fmtSignedMoneyHtml(d.lastDelta)+'</td><td>'+fmtSignedPctHtml(d.lastDeltaPct)+'</td>';
+              h += '<td>'+fmtSignedMoneyHtml(d.netChg)+'</td><td>'+fmtSignedPctHtml(d.netChgPct)+'</td>';
+              h += '<td><a href="#listing/'+d.id+'" class="bld-link" title="Sale & rental trackers">'+d.chgCount+'</a></td>';
               h += '<td style="color:var(--text-dim)">'+pct(d.oldGY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newGY)+'</td>';
               h += '<td style="color:var(--text-dim)">'+pct(d.oldNY)+'</td><td style="font-weight:600;color:var(--accent-green)">'+pct(d.newNY)+'</td>';
               h += '<td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td>';
               h += '</tr>';
             });
             h += '</tbody></table></div>';
-            h += '<div class="pagination"><span style="color:var(--text-muted)">Showing '+(S.dpg*S.PP+1)+'\u2013'+Math.min((S.dpg+1)*S.PP,fd.length)+' of '+fd.length.toLocaleString()+' drops</span>';
+            h += '<div class="pagination"><span style="color:var(--text-muted)">Showing '+(S.dpg*S.PP+1)+'\u2013'+Math.min((S.dpg+1)*S.PP,fd.length)+' of '+fd.length.toLocaleString()+' changes</span>';
             h += '<div style="display:flex;gap:4px"><button class="pg-btn" id="prevDPg"'+(S.dpg===0?' disabled':'')+'>&larr; Prev</button><span style="padding:4px 10px;color:var(--text-muted)">'+(S.dpg+1)+'/'+dtp+'</span><button class="pg-btn" id="nextDPg"'+(S.dpg>=dtp-1?' disabled':'')+ '>Next &rarr;</button></div></div>';
           }
         }
 
         if(S.view==='rentalDrops') {
           if(frd.length===0) {
-            h += '<div style="padding:28px;text-align:center;color:var(--text-muted);font-size:14px">No rental drops detected yet. Run process_data.py again after your next rental data download.</div>';
+            h += '<div style="padding:28px;text-align:center;color:var(--text-muted);font-size:14px">No rental changes detected yet. Run process_data.py again after your next rental data download.</div>';
           } else {
             h += '<div class="table-wrap drops-table"><table><thead><tr>';
             h += dth('Building / Area','building',true)+dth('Original Rent','firstRent')+dth('Previous Rent','prevRent')+dth('Current Rent','curRent');
-            h += dth('Last Drop','dropPrev')+dth('Last %','dropPctPrev')+dth('Total Drop','totalDrop')+dth('Total %','totalDropPct');
-            h += dth('Drops','dropCount')+dth('Rent/sf','rpsf')+dth('Tier','tier');
+            h += dth('Last \u0394','lastDelta')+dth('Last \u0394 %','lastDeltaPct')+dth('Chg','netChg')+dth('Chg %','netChgPct');
+            h += dth('Chg count','chgCount')+dth('Rent/sf','rpsf')+dth('Tier','tier');
             h += '</tr></thead><tbody>';
             rdPaged.forEach((d,i) => {
               const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)';
@@ -1017,32 +1080,36 @@
               h += '<td class="left"><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+d.area+' &middot; '+d.city+' &middot; '+d.beds+' &middot; '+d.sqft+' sqft</div></div></td>';
               h += '<td style="color:var(--text-dim)">'+fmt(d.firstRent)+'</td><td style="color:var(--text-dim)">'+fmt(d.prevRent)+'</td>';
               h += '<td style="font-weight:600;color:var(--text-bright)">'+fmt(d.curRent)+'</td>';
-              h += '<td class="drop-val">-'+fmt(d.dropPrev)+'</td><td class="drop-val">-'+d.dropPctPrev.toFixed(1)+'%</td>';
-              h += '<td class="drop-val">-'+fmt(d.totalDrop)+'</td><td class="drop-val" style="font-weight:700">-'+d.totalDropPct.toFixed(1)+'%</td>';
-              h += '<td><a href="#listing/rental/'+d.id+'" class="bld-link" title="View rent tracker">'+d.dropCount+'</a></td><td style="color:var(--text-dim)">'+fmt(d.rpsf)+'</td>';
+              h += '<td>'+fmtSignedMoneyHtml(d.lastDelta)+'</td><td>'+fmtSignedPctHtml(d.lastDeltaPct)+'</td>';
+              h += '<td>'+fmtSignedMoneyHtml(d.netChg)+'</td><td>'+fmtSignedPctHtml(d.netChgPct)+'</td>';
+              h += '<td><a href="#listing/'+d.id+'" class="bld-link" title="Sale & rental trackers">'+d.chgCount+'</a></td><td style="color:var(--text-dim)">'+fmt(d.rpsf)+'</td>';
               h += '<td><span class="badge" style="background:'+T[d.tier].bg+';color:'+T[d.tier].color+'">'+T[d.tier].label+'</span></td>';
               h += '</tr>';
             });
             h += '</tbody></table></div>';
-            h += '<div class="pagination"><span style="color:var(--text-muted)">Showing '+(S.rdpg*S.PP+1)+'\u2013'+Math.min((S.rdpg+1)*S.PP,frd.length)+' of '+frd.length.toLocaleString()+' drops</span>';
+            h += '<div class="pagination"><span style="color:var(--text-muted)">Showing '+(S.rdpg*S.PP+1)+'\u2013'+Math.min((S.rdpg+1)*S.PP,frd.length)+' of '+frd.length.toLocaleString()+' changes</span>';
             h += '<div style="display:flex;gap:4px"><button class="pg-btn" id="prevRDPg"'+(S.rdpg===0?' disabled':'')+'>&larr; Prev</button><span style="padding:4px 10px;color:var(--text-muted)">'+(S.rdpg+1)+'/'+rdtp+'</span><button class="pg-btn" id="nextRDPg"'+(S.rdpg>=rdtp-1?' disabled':'')+ '>Next &rarr;</button></div></div>';
           }
         }
 
         if(S.view==='listings') {
           h += '<div class="table-wrap"><table><thead><tr>';
-          h += '<th style="width:32px;text-align:center;cursor:default">#</th>'+lth('Building / Area','building',true)+lth('City','city')+lth('Type','beds')+lth('Price','price')+lth('Sqft','sqft')+lth('AED/sf','psf')+lth('Gross Yield','grossYield')+lth('Net Yield','netYield')+lth('Tier','tier');
+          h += '<th style="width:32px;text-align:center;cursor:default">#</th>'+lth('Building / Area','building',true)+lth('City','city')+lth('Type','beds')+lth('Price','price')+lth('Chg','netChg')+lth('Chg %','netChgPct')+lth('Chg count','chgCount')+lth('Sqft','sqft')+lth('AED/sf','psf')+lth('Gross Yield','grossYield')+lth('Net Yield','netYield')+lth('Tier','tier');
           h += '</tr></thead><tbody>';
           paged.forEach((l,i) => {
             const idx=S.pg*S.PP+i+1;
             const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)';
             const bName = l.url ? '<a href="'+l.url+'" target="_blank" class="bld-link">'+l.building+'</a>' : l.building;
+            const chgCountCell = (l.chgCount > 0 && l.id) ? '<a href="#listing/'+l.id+'" class="bld-link" title="Sale & rental trackers">'+l.chgCount+'</a>' : ((l.chgCount > 0) ? String(l.chgCount) : '\u2014');
             h += '<tr style="background:'+bg+'">';
             h += '<td style="text-align:center;color:var(--text-faint);font-size:12px">'+idx+'</td>';
             h += '<td class="left"><div style="display:flex;align-items:center"><span class="conf-dot" style="background:'+(l.conf==='B'?'var(--accent-green)':'var(--text-muted)')+'"></span><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+l.area+' &middot; '+furnLabel(l.furnished)+'</div></div></div></td>';
             h += '<td class="left" style="color:var(--text-dim);font-size:12px">'+l.city+'</td>';
             h += '<td style="color:var(--text-dim);font-size:12px">'+l.beds+'</td>';
             h += '<td style="font-weight:600;color:var(--text-bright)">'+fmt(l.price)+'</td>';
+            h += '<td>'+(l.netChg != null && l.netChg !== '' ? fmtSignedMoneyHtml(l.netChg) : '\u2014')+'</td>';
+            h += '<td>'+(l.netChgPct != null && l.netChgPct !== '' ? fmtSignedPctHtml(l.netChgPct) : '\u2014')+'</td>';
+            h += '<td>'+chgCountCell+'</td>';
             h += '<td style="color:var(--text-dim)">'+fmt(l.sqft)+'</td><td style="color:var(--text-dim)">'+fmt(l.psf)+'</td>';
             h += '<td style="font-weight:700;color:'+gyColor(l.grossYield)+'">'+pct(l.grossYield)+'</td>';
             h += '<td style="font-weight:600;color:'+nyColor(l.netYield)+'">'+pct(l.netYield)+'</td>';
@@ -1054,7 +1121,7 @@
           h += '<div style="display:flex;gap:4px"><button class="pg-btn" id="prevPg"'+(S.pg===0?' disabled':'')+'>&larr; Prev</button><span style="padding:4px 10px;color:var(--text-muted)">'+(S.pg+1)+'/'+tp+'</span><button class="pg-btn" id="nextPg"'+(S.pg>=tp-1?' disabled':'')+ '>Next &rarr;</button></div></div>';
         }
 
-        h += '<div class="footer"><strong style="color:var(--text-dim)">Data:</strong> '+LISTINGS.length.toLocaleString()+' sale listings (Dubai + Abu Dhabi, multi-unit types) matched to rental listings. The pipeline tracks sale price drops and rental drop trends over time by unique listing ID. Yields use building-level median rent/sqft where comps exist, area-level otherwise. Net yields deduct area-specific service charges. Click any building name to view the listing on Property Finder.</div>';
+        h += '<div class="footer"><strong style="color:var(--text-dim)">Data:</strong> '+LISTINGS.length.toLocaleString()+' sale listings (Dubai + Abu Dhabi, multi-unit types) matched to rental listings. The pipeline tracks sale and rental price changes (up or down) over time by unique listing ID. Yields use building-level median rent/sqft where comps exist, area-level otherwise. Net yields deduct area-specific service charges. Click any building name to view the listing on Property Finder; use Chg count for the on-dashboard trackers.</div>';
         h += '</div>';
         document.getElementById('root').innerHTML = h;
 
@@ -1089,9 +1156,11 @@
       window.render = render;
       function route() {
         const hash = (location.hash || '').replace(/^#/, '');
-        const m = hash.match(/^listing\/(sales|rental)\/(.+)$/);
-        if (m) renderListingDetail(m[1], m[2]);
-        else render();
+        let lm = hash.match(/^listing\/(sales|rental)\/(.+)$/);
+        if (lm) { renderListingDetail(lm[2]); return; }
+        lm = hash.match(/^listing\/(.+)$/);
+        if (lm) { renderListingDetail(lm[1]); return; }
+        render();
       }
       window.addEventListener('hashchange', function(){ if (window.RAW) route(); });
       fetch(DATA_URL).then(r=>r.ok?r.json():Promise.reject()).then(data=>{window.RAW=data;route();}).catch(()=>{window.RAW=null;route();});

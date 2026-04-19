@@ -1,6 +1,6 @@
 """
 Process all scraped Property Finder data into dashboard_data.json.
-Handles Dubai + Abu Dhabi, multi-bed unit types, tracks price/rent drops in SQLite.
+Handles Dubai + Abu Dhabi, multi-bed unit types, tracks sale/rent price changes in SQLite.
 
 Usage: python process_data.py
 """
@@ -607,6 +607,171 @@ def load_all_rental_drops(conn):
         FROM rental_drops WHERE total_drop > 0 ORDER BY total_drop_pct DESC""").fetchall()
 
 
+def _yields_for_prices(first_price, cur_price, sqft, city, area, beds, building, by_building, by_area, sc_psf):
+    """Return (old_gy, old_ny, new_gy, new_ny) or Nones if not computable."""
+    if not sqft or not first_price or not cur_price:
+        return None, None, None, None
+    if not is_plausible_sale_psf(cur_price, sqft):
+        return None, None, None, None
+    bkey = (city, area, beds, (building or "").lower())
+    akey = (city, area, beds)
+    rpsf = None
+    if bkey in by_building:
+        rpsf = median(by_building[bkey])
+    if rpsf is None and akey in by_area:
+        rpsf = median(by_area[akey])
+    if not rpsf:
+        return None, None, None, None
+    rent_annual = rpsf * sqft
+    new_gy = round((rent_annual / cur_price) * 100, 1)
+    new_ny = round(((rent_annual - sc_psf * sqft) / cur_price) * 100, 1)
+    old_gy = round((rent_annual / first_price) * 100, 1) if first_price > 0 else 0
+    old_ny = round(((rent_annual - sc_psf * sqft) / first_price) * 100, 1) if first_price > 0 else 0
+    if not is_plausible_yields(new_gy, new_ny):
+        new_gy = new_ny = None
+    if not is_plausible_yields(old_gy, old_ny):
+        old_gy = old_ny = None
+    return old_gy, old_ny, new_gy, new_ny
+
+
+def build_sales_price_changes(conn, areas, by_building, by_area, snapshot_date):
+    """
+    All sale listings with at least one price change across snapshots (up or down).
+    Row: lid, building, area_idx, sqft, beds, furn, first, prev, cur,
+         last_delta, last_delta_pct, net_chg, net_chg_pct, chg_count,
+         old_gy, old_ny, new_gy, new_ny, tier, sc_psf, first_seen, last_change_date, city, url
+    """
+    cur = conn.execute(
+        "SELECT listing_id, snapshot_date, price, sqft, beds, building, area, city, path, furnished "
+        "FROM listing_history WHERE beds IN ('Studio', '1BR', '2BR') "
+        "ORDER BY listing_id, snapshot_date ASC"
+    )
+    by_lid = defaultdict(list)
+    for row in cur.fetchall():
+        by_lid[str(row[0])].append(row)
+    out = []
+    d24 = 0
+    for lid, chain in by_lid.items():
+        if len(chain) < 2:
+            continue
+        prices = [float(r[2]) for r in chain]
+        chg_count = sum(1 for i in range(1, len(prices)) if prices[i] != prices[i - 1])
+        if chg_count == 0:
+            continue
+        last = chain[-1]
+        _, _, _, sqft, beds, building, area, city, path, furnished = last
+        if beds not in TRACKED_BEDS:
+            continue
+        first_price = prices[0]
+        prev_price = prices[-2]
+        cur_price = prices[-1]
+        last_delta = cur_price - prev_price
+        last_delta_pct = round((last_delta / prev_price) * 100, 1) if prev_price else 0.0
+        net_chg = cur_price - first_price
+        net_chg_pct = round((net_chg / first_price) * 100, 1) if first_price else 0.0
+        first_seen = chain[0][1]
+        last_change_date = chain[-1][1]
+        for i in range(len(prices) - 1, 0, -1):
+            if prices[i] != prices[i - 1]:
+                last_change_date = chain[i][1]
+                break
+        building = (building or "").strip() or "Unknown"
+        area = area or "Other"
+        city = city or "Dubai"
+        area_idx = areas.index(area) if area in areas else 0
+        tier = AREA_TIERS.get(area, DEFAULT_TIER)
+        sc_psf = sc_for_area(area)
+        furn_code = norm_furnished(furnished)
+        old_gy, old_ny, new_gy, new_ny = _yields_for_prices(
+            first_price, cur_price, sqft, city, area, beds, building, by_building, by_area, sc_psf
+        )
+        pth = path or ""
+        url = (PF_BASE + (pth if pth.startswith("/") else "/" + pth)) if pth else PF_BASE
+        out.append([
+            lid,
+            building, area_idx, int(sqft or 0), beds or "Studio", furn_code,
+            round(first_price), round(prev_price), round(cur_price),
+            round(last_delta), last_delta_pct,
+            round(net_chg), net_chg_pct,
+            chg_count,
+            old_gy, old_ny, new_gy, new_ny, tier, sc_psf,
+            first_seen or "", last_change_date or "", city, url,
+        ])
+        if (
+            len(chain) >= 2
+            and chain[-1][1] == snapshot_date
+            and float(chain[-1][2]) != float(chain[-2][2])
+        ):
+            d24 += 1
+    out.sort(key=lambda r: abs(r[12]), reverse=True)
+    return out, d24
+
+
+def build_rental_changes(conn, areas, snapshot_date):
+    """
+    Rental rows with same shape as sales (rent values in price slots).
+    """
+    cur = conn.execute(
+        "SELECT listing_id, snapshot_date, annual_rent, sqft, beds, building, area, city, path, furnished "
+        "FROM rental_history WHERE beds IN ('Studio', '1BR', '2BR') "
+        "ORDER BY listing_id, snapshot_date ASC"
+    )
+    by_lid = defaultdict(list)
+    for row in cur.fetchall():
+        by_lid[str(row[0])].append(row)
+    out = []
+    rd24 = 0
+    for lid, chain in by_lid.items():
+        if len(chain) < 2:
+            continue
+        rents = [float(r[2]) for r in chain]
+        chg_count = sum(1 for i in range(1, len(rents)) if rents[i] != rents[i - 1])
+        if chg_count == 0:
+            continue
+        last = chain[-1]
+        _, _, _, sqft, beds, building, area, city, path, furnished = last
+        if beds not in TRACKED_BEDS:
+            continue
+        first_rent = rents[0]
+        prev_rent = rents[-2]
+        cur_rent = rents[-1]
+        last_delta = cur_rent - prev_rent
+        last_delta_pct = round((last_delta / prev_rent) * 100, 1) if prev_rent else 0.0
+        net_chg = cur_rent - first_rent
+        net_chg_pct = round((net_chg / first_rent) * 100, 1) if first_rent else 0.0
+        first_seen = chain[0][1]
+        last_change_date = chain[-1][1]
+        for i in range(len(rents) - 1, 0, -1):
+            if rents[i] != rents[i - 1]:
+                last_change_date = chain[i][1]
+                break
+        building = (building or "").strip() or "Unknown"
+        area = area or "Other"
+        city = city or "Dubai"
+        area_idx = areas.index(area) if area in areas else 0
+        furn_code = norm_furnished(furnished)
+        tier = AREA_TIERS.get(area, DEFAULT_TIER)
+        pth = path or ""
+        url = (PF_BASE + (pth if pth.startswith("/") else "/" + pth)) if pth else PF_BASE
+        out.append([
+            lid,
+            building, area_idx, int(sqft or 0), beds or "Studio", furn_code,
+            round(first_rent), round(prev_rent), round(cur_rent),
+            round(last_delta), last_delta_pct,
+            round(net_chg), net_chg_pct,
+            chg_count,
+            first_seen or "", last_change_date or "", city, url, tier,
+        ])
+        if (
+            len(chain) >= 2
+            and chain[-1][1] == snapshot_date
+            and float(chain[-1][2]) != float(chain[-2][2])
+        ):
+            rd24 += 1
+    out.sort(key=lambda r: abs(r[12]), reverse=True)
+    return out, rd24
+
+
 def compute_price_indices(conn, min_city_n=20, min_area_n=5):
     """
     Build chained price indices (base = 100 at first snapshot with enough data)
@@ -977,117 +1142,49 @@ def main():
         area_idx = areas.index(area) if area in areas else 0
         furnished = norm_furnished(s.get("furnished"))
         url = build_url(s)
+        lid = str(s.get("id", "") or "")
 
         listings_out.append([
             building, area_idx, round(price), sqft, furnished,
             round(gross_yield, 1), round(net_yield, 1), tier, conf, sc_psf,
-            city, beds, url,
+            city, beds, url, lid,
         ])
 
-    # --- Drops with yields ---
-    all_drops = load_all_drops(conn)
-    drops_out = []
-    for row in all_drops:
-        (lid, building, area, city, sqft, beds, furnished,
-         first_price, prev_price, cur_price,
-         drop_prev, drop_pct_prev, total_drop, total_drop_pct,
-         drop_count, first_seen, last_drop_date) = row
-        if beds not in TRACKED_BEDS:
-            continue
-        building = building or "Unknown"
-        area = area or "Other"
-        city = city or "Dubai"
-        area_idx = areas.index(area) if area in areas else 0
-        tier = AREA_TIERS.get(area, DEFAULT_TIER)
-        sc_psf = sc_for_area(area)
-        furn_code = norm_furnished(furnished)
-        rpsf = None
-        bkey = (city, area, beds, (building or "").lower())
-        akey = (city, area, beds)
-        if bkey in by_building:
-            rpsf = median(by_building[bkey])
-        if rpsf is None and akey in by_area:
-            rpsf = median(by_area[akey])
-        if rpsf and sqft and cur_price > 0 and is_plausible_sale_psf(cur_price, sqft):
-            rent_annual = rpsf * sqft
-            new_gy = round((rent_annual / cur_price) * 100, 1)
-            new_ny = round(((rent_annual - sc_psf * sqft) / cur_price) * 100, 1)
-            old_gy = round((rent_annual / first_price) * 100, 1) if first_price > 0 else 0
-            old_ny = round(((rent_annual - sc_psf * sqft) / first_price) * 100, 1) if first_price > 0 else 0
-            if not is_plausible_yields(new_gy, new_ny):
-                new_gy = new_ny = None
-            if not is_plausible_yields(old_gy, old_ny):
-                old_gy = old_ny = None
+    # --- Sale / rental price change rows (any direction) + yields ---
+    drops_out, d24 = build_sales_price_changes(
+        conn, areas, by_building, by_area, snapshot_date
+    )
+    rental_drops_out, rd24 = build_rental_changes(conn, areas, snapshot_date)
+
+    sales_chg_by_id = {str(r[0]): (r[11], r[12], r[13]) for r in drops_out}
+    for i, row in enumerate(listings_out):
+        lid = row[13]
+        chg = sales_chg_by_id.get(lid)
+        if chg:
+            listings_out[i] = list(row) + [chg[0], chg[1], chg[2]]
         else:
-            new_gy = new_ny = old_gy = old_ny = None
-        # Find URL from listing_history
-        url_row = conn.execute(
-            "SELECT path FROM listing_history WHERE listing_id = ? ORDER BY snapshot_date DESC LIMIT 1",
-            (lid,)).fetchone()
-        url = PF_BASE + (url_row[0] if url_row and url_row[0] else "")
+            listings_out[i] = list(row) + [None, None, 0]
 
-        drops_out.append([
-            lid,
-            building, area_idx, sqft or 0, beds or "Studio", furn_code,
-            round(first_price), round(prev_price), round(cur_price),
-            round(drop_prev), round(drop_pct_prev, 1),
-            round(total_drop), round(total_drop_pct, 1), drop_count,
-            old_gy, old_ny, new_gy, new_ny, tier, sc_psf,
-            first_seen or "", last_drop_date or "", city or "Dubai", url,
-        ])
-    all_rental_drops = load_all_rental_drops(conn)
-    rental_drops_out = []
-    for row in all_rental_drops:
-        (lid, building, area, city, sqft, beds, furnished,
-         first_rent, prev_rent, cur_rent,
-         drop_prev, drop_pct_prev, total_drop, total_drop_pct,
-         drop_count, first_seen, last_drop_date) = row
-        if beds not in TRACKED_BEDS:
-            continue
-        building = building or "Unknown"
-        area = area or "Other"
-        city = city or "Dubai"
-        area_idx = areas.index(area) if area in areas else 0
-        furn_code = norm_furnished(furnished)
-        tier = AREA_TIERS.get(area, DEFAULT_TIER)
-        url_row = conn.execute(
-            "SELECT path FROM rental_history WHERE listing_id = ? ORDER BY snapshot_date DESC LIMIT 1",
-            (lid,)).fetchone()
-        url = PF_BASE + (url_row[0] if url_row and url_row[0] else "")
-
-        rental_drops_out.append([
-            lid,
-            building, area_idx, sqft or 0, beds or "Studio", furn_code,
-            round(first_rent), round(prev_rent), round(cur_rent),
-            round(drop_prev), round(drop_pct_prev, 1),
-            round(total_drop), round(total_drop_pct, 1), drop_count,
-            first_seen or "", last_drop_date or "", city, url, tier,
-        ])
-
-    # First snapshot date (data start / "created") and 24h drop counts (must run before conn.close())
+    # First snapshot date (data start / "created") (must run before conn.close())
     first_snapshot_row = conn.execute(
         "SELECT MIN(snapshot_date) FROM listing_history"
     ).fetchone()
     created_date = (first_snapshot_row[0] or snapshot_date).split("T")[0]
-    d24 = conn.execute(
-        "SELECT COUNT(*) FROM price_drops WHERE last_drop_date = ?",
-        (snapshot_date,),
-    ).fetchone()[0]
-    rd24 = conn.execute(
-        "SELECT COUNT(*) FROM rental_drops WHERE last_drop_date = ?",
-        (snapshot_date,),
-    ).fetchone()[0]
 
-    # Price and rental histories per listing (for drop tracker pages)
+    # Price and rental histories per listing (listing detail trackers)
     ph = {}
-    for (lid,) in conn.execute("SELECT DISTINCT listing_id FROM price_drops").fetchall():
+    for (lid,) in conn.execute(
+        "SELECT DISTINCT listing_id FROM listing_history WHERE beds IN ('Studio', '1BR', '2BR')"
+    ).fetchall():
         rows = conn.execute(
             "SELECT snapshot_date, price FROM listing_history WHERE listing_id = ? ORDER BY snapshot_date ASC",
             (lid,),
         ).fetchall()
         ph[str(lid)] = [[r[0], int(r[1])] for r in rows]
     rh = {}
-    for (lid,) in conn.execute("SELECT DISTINCT listing_id FROM rental_drops").fetchall():
+    for (lid,) in conn.execute(
+        "SELECT DISTINCT listing_id FROM rental_history WHERE beds IN ('Studio', '1BR', '2BR')"
+    ).fetchall():
         rows = conn.execute(
             "SELECT snapshot_date, annual_rent FROM rental_history WHERE listing_id = ? ORDER BY snapshot_date ASC",
             (lid,),
@@ -1248,7 +1345,7 @@ def main():
         tier_counts[row[7]] += 1
     print(
         f"\nOutput: {len(listings_out)} listings, {len(summaries_out)} areas, "
-        f"{len(drops_out)} price drops, {len(rental_drops_out)} rental drops"
+        f"{len(drops_out)} sale price change rows, {len(rental_drops_out)} rental change rows"
     )
     print(
         f"Guardrails: skipped {skipped_bad_sale_psf} listings due to implausible sale AED/sqft "
