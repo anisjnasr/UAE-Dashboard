@@ -182,6 +182,26 @@ def extract_listing(p):
     return out
 
 
+def extract_properties(search_result):
+    """Support legacy `properties` and newer `listings[*].property` payload shapes."""
+    sr = search_result or {}
+    props = sr.get("properties")
+    if props:
+        return [p for p in props if isinstance(p, dict)]
+
+    out = []
+    for item in sr.get("listings") or []:
+        if not isinstance(item, dict):
+            continue
+        prop = item.get("property")
+        if isinstance(prop, dict):
+            out.append(prop)
+        elif "id" in item and "details_path" in item:
+            # Some payload variants may put listing fields at top level.
+            out.append(item)
+    return out
+
+
 def infer_unit_type(all_rows):
     counts = {}
     for row in all_rows:
@@ -212,7 +232,7 @@ def run_query(kind, url, out_dir, max_pages=0):
         first, cookies = fetch_search_json(url, cookies)
         html = fetch_html(url, cookie_header=cookies)
     sr0 = ((first.get("props") or {}).get("pageProps") or {}).get("searchResult") or {}
-    first_props = sr0.get("properties") or []
+    first_props = extract_properties(sr0)
     if not first_props:
         raise RuntimeError(f"No properties returned on first page for {kind}")
 
@@ -239,8 +259,9 @@ def run_query(kind, url, out_dir, max_pages=0):
         try:
             page_data, cookies = fetch_search_json(page_url(url, page), cookies)
             page_props = (
-                (((page_data.get("props") or {}).get("pageProps") or {}).get("searchResult") or {}).get("properties")
-                or []
+                extract_properties(
+                    ((page_data.get("props") or {}).get("pageProps") or {}).get("searchResult") or {}
+                )
             )
             if not page_props:
                 failures += 1
