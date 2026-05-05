@@ -46,7 +46,7 @@ Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
 """
 
 
-def bootstrap_waf_session(page_url):
+def bootstrap_waf_session(page_url, attempts=3):
     """Run headless Chromium past AWS WAF; return (Cookie header string, HTML for first page)."""
     try:
         from playwright.sync_api import sync_playwright
@@ -56,25 +56,40 @@ def bootstrap_waf_session(page_url):
             "Install: pip install playwright && playwright install chromium"
         ) from exc
 
+    last_exc = None
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-        context = browser.new_context(
-            locale="en-US",
-            viewport={"width": 1365, "height": 900},
-            user_agent=PLAYWRIGHT_UA,
-        )
-        context.add_init_script(STEALTH_INIT)
-        page = context.new_page()
-        page.goto(page_url, wait_until="domcontentloaded", timeout=120000)
-        page.wait_for_selector("#__NEXT_DATA__", state="attached", timeout=120000)
-        html = page.content()
-        cookies = context.cookies()
-        browser.close()
-    cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
-    return cookie_header, html
+        for attempt in range(1, attempts + 1):
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            try:
+                context = browser.new_context(
+                    locale="en-US",
+                    viewport={"width": 1365, "height": 900},
+                    user_agent=PLAYWRIGHT_UA,
+                )
+                context.add_init_script(STEALTH_INIT)
+                page = context.new_page()
+                page.goto(page_url, wait_until="domcontentloaded", timeout=120000)
+                try:
+                    page.wait_for_selector("#__NEXT_DATA__", state="attached", timeout=120000)
+                except Exception:
+                    # Occasionally WAF challenge pages stick; one reload often clears it.
+                    page.reload(wait_until="domcontentloaded", timeout=120000)
+                    page.wait_for_selector("#__NEXT_DATA__", state="attached", timeout=120000)
+
+                html = page.content()
+                cookies = context.cookies()
+                cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+                return cookie_header, html
+            except Exception as exc:
+                last_exc = exc
+                if attempt < attempts:
+                    time.sleep(3)
+            finally:
+                browser.close()
+    raise RuntimeError(f"Could not obtain WAF session for {page_url} after {attempts} attempts") from last_exc
 
 
 def fetch_html(url, retries=3, delay_s=2, cookie_header=None):
