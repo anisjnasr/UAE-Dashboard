@@ -547,6 +547,7 @@
           scPsf: l[9]||12, city: l[10]||'Dubai', beds: l[11]||'Unknown', url: l[12]||'',
           id: String(l[13]||''),
           netChg: l[14], netChgPct: l[15], chgCount: l[16]||0,
+          rentComps: l[17]||0,
           psf: l[3] ? Math.round(l[2]/l[3]) : 0
         }));
         const SUMMARIES = (RAW.s||[]).map(s => ({
@@ -707,7 +708,7 @@
           maxP_: fl.length ? Math.max(...fl.map(l=>l.price)) : 0,
           medGY: fl.length ? medianArr(fl.map(l=>l.grossYield)) : 0,
           medNY: fl.length ? medianArr(fl.map(l=>l.netYield)) : 0,
-          mgy: fl.length ? Math.max(...fl.map(l=>l.grossYield)) : 0,
+          mgy: (fl.filter(l=>(l.rentComps||0)>=3).length ? Math.max(...fl.filter(l=>(l.rentComps||0)>=3).map(l=>l.grossYield)) : (fl.length ? Math.max(...fl.map(l=>l.grossYield)) : 0)),
           minGY: fl.length ? Math.min(...fl.map(l=>l.grossYield)) : 0,
           P: fl.filter(l=>l.tier==='P').length, E: fl.filter(l=>l.tier==='E').length,
           M: fl.filter(l=>l.tier==='M').length, X: fl.filter(l=>l.tier==='X').length,
@@ -730,7 +731,7 @@
           rmin: Number(RAW.rmin) || 0,
           rmax: Number(RAW.rmax) || 0,
           rmed: Number(RAW.rmed) || 0,
-          mgyUrl: fl.length ? (function(){ const best = fl.reduce((b,l)=>l.grossYield>b.grossYield?l:b, fl[0]); return best.url || ''; })() : '',
+          mgyUrl: (function(){ const pool = fl.filter(l=>(l.rentComps||0)>=3); const src = pool.length ? pool : fl; return src.length ? (function(){ const best = src.reduce((b,l)=>l.grossYield>b.grossYield?l:b, src[0]); return best.url || ''; })() : ''; })(),
         };
         const tp = Math.ceil(fl.length/S.PP)||1;
         const paged = fl.slice(S.pg*S.PP,(S.pg+1)*S.PP);
@@ -763,7 +764,7 @@
         h += '<h1>UAE Real Estate Dashboard</h1>';
         h += '<div style="text-align:center;color:var(--text-muted);font-size:12px;margin-bottom:4px">Created: '+createdLabel+' &nbsp;&middot;&nbsp; Last Updated: '+updatedAtLabel+'</div>';
         const rentalCountLabel = RENTAL_COUNT > 0 ? RENTAL_COUNT.toLocaleString() : '\u2014';
-        h += '<div class="subtitle">'+LISTINGS.length.toLocaleString()+' sale listings ('+st.dubaiN.toLocaleString()+' Dubai, '+st.adN.toLocaleString()+' Abu Dhabi) matched against '+rentalCountLabel+' rental listings (Source: Property Finder)</div>';
+        h += '<div class="subtitle">'+LISTINGS.length.toLocaleString()+' sale listings ('+st.dubaiN.toLocaleString()+' Dubai, '+st.adN.toLocaleString()+' Abu Dhabi) matched against '+rentalCountLabel+' rental listings (Source: Property Finder)<br><span style="font-size:11.5px;color:var(--text-faint)">All prices, rents and yields are based on advertised (asking) figures, not transaction/achieved values.</span></div>';
 
         h += '<div class="top-filters-wrap">';
         h += '<div class="dropdown-filters">';
@@ -831,7 +832,7 @@
         h += '<div class="kpi-section-blocks"><div class="kpis">';
         h += '<div class="kpi accent"><div class="label">Median Net Yield</div><div class="value">'+st.medNY.toFixed(1)+'%</div></div>';
         h += '<div class="kpi accent"><div class="label">Median Gross Yield</div><div class="value">'+st.medGY.toFixed(1)+'%</div></div>';
-        h += '<div class="kpi accent"><div class="label">Max Gross Yield</div><div class="value">'+mgyValHtml+'</div></div>';
+        h += '<div class="kpi accent"><div class="label">Top Gross Yield <span class="info-i" title="Highest gross yield among listings backed by at least 3 same-building rent comps, so a single thin or mispriced comp cannot headline this figure.">i</span></div><div class="value">'+mgyValHtml+'</div></div>';
         h += '</div></div></div>';
         h += '<div style="height:8px"></div>';
 
@@ -954,7 +955,7 @@
 
         h += '<div style="margin-bottom:16px;padding:16px 18px;border-radius:12px;border:1px solid var(--border);background:linear-gradient(145deg, color-mix(in srgb, var(--bg-card) 98%, white), color-mix(in srgb, var(--bg-card) 95%, black));box-shadow:0 1px 3px rgba(0,0,0,0.08)">';
         h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">';
-        h += '<div class="filter-label" style="margin:0;font-size:10px;letter-spacing:1px">Price Indices</div>';
+        h += '<div class="filter-label" style="margin:0;font-size:10px;letter-spacing:1px">Price Indices <span class="info-i" title="Median sale/rent per sqft for the listing pool, rebased to 100 at the first snapshot with enough data. This tracks the mix of what is listed, not a matched-sample (same-unit) price change, so shifts in listing mix can move it.">i</span></div>';
         h += '<div style="display:inline-flex;gap:4px;border-radius:999px;border:1px solid var(--border);padding:2px;background:var(--bg-row-odd);font-size:11px">';
         h += '<button class="view-tab'+(S.indexType==='sales'?' active':'')+'" data-idxtype="sales" style="border-radius:999px;padding:4px 10px;font-size:11px">Sales</button>';
         h += '<button class="view-tab'+(S.indexType==='rental'?' active':'')+'" data-idxtype="rental" style="border-radius:999px;padding:4px 10px;font-size:11px">Rental</button>';
@@ -1004,7 +1005,7 @@
         h += '</div>';
         h += '</div>';
 
-        function ath(l,k,left) { const a=S.ask===k,ar=a?(S.asd==='desc'?'\u25BC':'\u25B2'):''; return '<th'+(left?' class="left"':'')+' data-asort="'+k+'">'+l+(ar?' <span class="sort-arrow" title="'+(S.asd==='desc'?'Sorted descending':'Sorted ascending')+'">'+ar+'</span>':'')+'</th>'; }
+        function ath(l,k,left,info) { const a=S.ask===k,ar=a?(S.asd==='desc'?'\u25BC':'\u25B2'):''; const infoIcon=info?' <span class="info-i" title="'+info+'">i</span>':''; return '<th'+(left?' class="left"':'')+' data-asort="'+k+'">'+l+infoIcon+(ar?' <span class="sort-arrow" title="'+(S.asd==='desc'?'Sorted descending':'Sorted ascending')+'">'+ar+'</span>':'')+'</th>'; }
         function lth(l,k,left) { const a=S.sk===k,ar=a?(S.sd==='desc'?'\u25BC':'\u25B2'):''; return '<th'+(left?' class="left"':'')+' data-lsort="'+k+'">'+l+(ar?' <span class="sort-arrow" title="'+(S.sd==='desc'?'Sorted descending':'Sorted ascending')+'">'+ar+'</span>':'')+'</th>'; }
         function dth(l,k,left) { const a=S.dsk===k,ar=a?(S.dsd==='desc'?'\u25BC':'\u25B2'):''; return '<th'+(left?' class="left"':'')+' data-dsort="'+k+'">'+l+(ar?' <span class="sort-arrow" title="'+(S.dsd==='desc'?'Sorted descending':'Sorted ascending')+'">'+ar+'</span>':'')+'</th>'; }
         function furnLabel(f) { return f===1?'Furn':f===2?'Partly':'Unfurn'; }
@@ -1014,7 +1015,7 @@
 
         if(S.view==='areas') {
           h += '<div class="table-wrap"><table><thead><tr>';
-          h += ath('Area','name',true)+ath('City','city')+ath('Sales','count')+ath('Rents','rentals')+ath('Bldg%','bldgPct')+ath('Median Price','medPrice')+ath('Median Rent','avgRent')+ath('R/sqft','medRpsf')+ath('Median Gross','avgGY')+ath('Median Net','avgNY')+ath('SC/sf','scPsf')+ath('Tier','tier');
+          h += ath('Area','name',true)+ath('City','city')+ath('Sales','count')+ath('Rents','rentals')+ath('Bldg%','bldgPct',false,'Share of this area\u2019s sale listings priced using same-building rent comps (\u22653) rather than the area median.')+ath('Median Price','medPrice')+ath('Median Rent','avgRent',false,'Estimated, not observed: median of each sale\u2019s implied annual rent (comp rent/sqft \u00d7 that unit\u2019s sqft), not a median of actual rental listings.')+ath('R/sqft','medRpsf')+ath('Median Gross','avgGY')+ath('Median Net','avgNY')+ath('SC/sf','scPsf')+ath('Tier','tier');
           h += '</tr></thead><tbody>';
           fa.forEach((a,i) => {
             const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)';
@@ -1101,9 +1102,13 @@
             const bg=i%2===0?'var(--bg-row-even)':'var(--bg-row-odd)';
             const bName = l.url ? '<a href="'+l.url+'" target="_blank" class="bld-link">'+l.building+'</a>' : l.building;
             const chgCountCell = (l.chgCount > 0 && l.id) ? '<a href="#listing/'+l.id+'" class="bld-link" title="Sale & rental trackers">'+l.chgCount+'</a>' : ((l.chgCount > 0) ? String(l.chgCount) : '\u2014');
+            const rn = l.rentComps || 0;
+            const matchKind = (l.conf==='B' ? 'bldg' : 'area');
+            const dotColor = l.conf==='B' ? (rn>=3 ? 'var(--accent-green)' : 'var(--accent-blue)') : 'var(--text-muted)';
+            const dotTitle = (l.conf==='B' ? 'Rent comp: same building' : 'Rent comp: area median')+' \u2014 '+rn+' rental'+(rn===1?'':'s')+(l.conf==='B'&&rn<3?' (thin sample)':'');
             h += '<tr style="background:'+bg+'">';
             h += '<td style="text-align:center;color:var(--text-faint);font-size:12px">'+idx+'</td>';
-            h += '<td class="left"><div style="display:flex;align-items:center"><span class="conf-dot" style="background:'+(l.conf==='B'?'var(--accent-green)':'var(--text-muted)')+'"></span><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+l.area+' &middot; '+furnLabel(l.furnished)+'</div></div></div></td>';
+            h += '<td class="left"><div style="display:flex;align-items:center"><span class="conf-dot" title="'+dotTitle+'" style="background:'+dotColor+'"></span><div><div style="font-weight:600;font-size:13.5px">'+bName+'</div><div style="font-size:12px;color:var(--text-muted)">'+l.area+' &middot; '+furnLabel(l.furnished)+' &middot; <span title="'+dotTitle+'">'+matchKind+' n='+rn+'</span></div></div></div></td>';
             h += '<td class="left" style="color:var(--text-dim);font-size:12px">'+l.city+'</td>';
             h += '<td style="color:var(--text-dim);font-size:12px">'+l.beds+'</td>';
             h += '<td style="font-weight:600;color:var(--text-bright)">'+fmt(l.price)+'</td>';
@@ -1121,7 +1126,7 @@
           h += '<div style="display:flex;gap:4px"><button class="pg-btn" id="prevPg"'+(S.pg===0?' disabled':'')+'>&larr; Prev</button><span style="padding:4px 10px;color:var(--text-muted)">'+(S.pg+1)+'/'+tp+'</span><button class="pg-btn" id="nextPg"'+(S.pg>=tp-1?' disabled':'')+ '>Next &rarr;</button></div></div>';
         }
 
-        h += '<div class="footer"><strong style="color:var(--text-dim)">Data:</strong> '+LISTINGS.length.toLocaleString()+' sale listings (Dubai + Abu Dhabi, multi-unit types) matched to rental listings. The pipeline tracks sale and rental price changes (up or down) over time by unique listing ID. Yields use building-level median rent/sqft where comps exist, area-level otherwise. Net yields deduct area-specific service charges. Click any building name to view the listing on Property Finder; use Chg count for the on-dashboard trackers.</div>';
+        h += '<div class="footer"><strong style="color:var(--text-dim)">Data:</strong> '+LISTINGS.length.toLocaleString()+' sale listings (Dubai + Abu Dhabi, multi-unit types) matched to rental listings. The pipeline tracks sale and rental price changes (up or down) over time by unique listing ID. Yields use building-level median rent/sqft when at least 3 same-building, same-furnishing comps exist (green dot), otherwise the area median (blue/grey dot); the <em>n</em> next to each listing is the number of rentals behind that estimate. Net yields deduct area-specific service charges (plus vacancy and management costs if configured). All figures are based on advertised asking prices/rents. Click any building name to view the listing on Property Finder; use Chg count for the on-dashboard trackers.</div>';
         h += '</div>';
         document.getElementById('root').innerHTML = h;
 

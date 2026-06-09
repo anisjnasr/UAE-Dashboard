@@ -5,10 +5,10 @@ Track Dubai and Abu Dhabi residential listing yields (studios and 1-bed) with **
 ## What’s in this repo
 
 - **Dashboard** – Single-page app that shows:
-  - **Headline metrics:** Listings count, avg price, avg/best gross yield, avg/best net yield, % building-matched.
+  - **Headline metrics:** Listings count, median price, median gross yield, median net yield, and top gross yield (highest among listings backed by ≥3 same-building rent comps).
   - **Tier filters:** Prime, Established, Mid-Tier, Peripheral (area quality).
-  - **Area breakdown table:** Sales count, rentals count, bldg match %, avg/median price, avg rent, R/sqft, gross & net yield, service charge, tier.
-  - **All listings table:** Building, area, price, sqft, AED/sf, gross yield, net yield, tier; filters (area, min yield, max price, building vs area match); pagination.
+  - **Area breakdown table:** Sales count, rentals count, bldg match %, median price, median (implied) rent, R/sqft, median gross & net yield, service charge, tier.
+  - **All listings table:** Building, area, price, sqft, AED/sf, gross yield, net yield, tier, and `n` (rent comps behind the estimate); filters (area, min yield, max price, building vs area match); pagination.
 
 - **Data pipeline**
   - **Scraping:** Browser scripts (no extensions) that pull listing data from Property Finder’s embedded JSON.
@@ -98,8 +98,11 @@ To avoid bot restrictions, run the script only after you’ve opened the site an
 ## Yields and service charge
 
 - **Gross yield** = (estimated annual rent ÷ sale price) × 100.
-- **Rent source:** Building-level median rent/sqft when rentals exist in the same building; otherwise area-level median. Net yield subtracts an estimated **service charge** (see `config/area_tiers.py`: `SERVICE_CHARGE_AED_PER_SQFT`).
-- Listings are filtered to sqft 300–2,500 and rent/sf outliers removed.
+- **Rent source:** Building-level median rent/sqft is used only when there are at least `MIN_BUILDING_COMPS` (default 3) same-building rentals of the **same furnishing class** (furnished vs unfurnished/partly); otherwise it falls back to the area-level median. Each listing carries `n`, the number of rentals behind its rent estimate, so thin samples are visible.
+- **Furnishing:** Furnished and unfurnished rents differ materially, so comps are matched by furnishing class before falling back to mixed pools.
+- **Net yield** = (annual rent × (1 − `VACANCY_RATE`) − service charge − annual rent × `MANAGEMENT_RATE`) ÷ price. `VACANCY_RATE` and `MANAGEMENT_RATE` default to `0.0` (so net yield = gross minus service charge); raise them in `config/area_tiers.py` for a more realistic investor net yield. Service charge is an estimate per area/tier (`SERVICE_CHARGE_BY_AREA` / `SERVICE_CHARGE_BY_TIER`).
+- **Area matching:** Areas are resolved from the listing URL slug, matching a known area as a prefix first and then anywhere in the slug (handles building-name-first URLs). Each run logs how many listings could not be resolved to a known area.
+- All figures use advertised **asking** prices and rents. Listings are filtered to sqft 300–2,500, gross yield ≤ 15% / net yield ≤ 13% (implausible values excluded), and rent/sf outliers removed.
 
 ## Customisation
 

@@ -131,3 +131,19 @@ SERVICE_CHARGE_BY_AREA = {
 
 SERVICE_CHARGE_BY_TIER = {"P": 23, "E": 16, "M": 12, "X": 9}
 DEFAULT_SC_PER_SQFT = 12
+
+# ---------------------------------------------------------------------------
+# Operating-cost assumptions for NET yield.
+#
+# Net yield = (annual rent x (1 - VACANCY_RATE)
+#              - service charge (AED/sqft x sqft)
+#              - annual rent x MANAGEMENT_RATE) / price.
+#
+# Both rates are fractions of annual rent and default to 0.0, so out of the box
+# "net yield" means "gross yield minus service charge" (unchanged behaviour).
+# Opt in to a more realistic investor net yield by raising these, e.g.:
+#   VACANCY_RATE = 0.05      # ~2.5 weeks vacancy per year
+#   MANAGEMENT_RATE = 0.05   # 5% letting / management fee
+# ---------------------------------------------------------------------------
+VACANCY_RATE = 0.0
+MANAGEMENT_RATE = 0.0

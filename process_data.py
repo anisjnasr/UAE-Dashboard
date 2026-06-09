@@ -24,17 +24,29 @@ DB_PATH = DATA_DIR / "listings.db"
 from config.area_tiers import (
     AREA_TIERS, DEFAULT_TIER,
     SERVICE_CHARGE_BY_AREA, SERVICE_CHARGE_BY_TIER, DEFAULT_SC_PER_SQFT,
+    VACANCY_RATE, MANAGEMENT_RATE,
 )
 
 PF_BASE = "https://www.propertyfinder.ae"
 TRACKED_BEDS = {"Studio", "1BR", "2BR"}
 
+# Minimum number of same-building rental comps before a "building match" is
+# treated as robust. Below this we fall back to the (larger) area comp pool.
+MIN_BUILDING_COMPS = 3
+
+# Rent/sqft sanity band used when building comp pools (AED per sqft per year).
+MIN_RENT_PSF = 30
+MAX_RENT_PSF = 300
+
 # Guardrails against bad source records creating impossible yields.
+# Bands are tightened to realistic UAE residential ranges: gross yields above
+# ~15% almost always indicate a bad rent comp or mispriced listing rather than a
+# genuine opportunity, so they are excluded rather than surfaced.
 MIN_SALE_PSF = 150
 MAX_SALE_PSF = 10000
-MAX_GROSS_YIELD_PCT = 35.0
+MAX_GROSS_YIELD_PCT = 15.0
 MIN_NET_YIELD_PCT = -5.0
-MAX_NET_YIELD_PCT = 30.0
+MAX_NET_YIELD_PCT = 13.0
 
 # Legacy names kept for backward compatibility
 LEGACY_SALES_FILES = {
@@ -136,6 +148,52 @@ def detect_city_from_listing(listing):
     return detect_city(listing.get("path"))
 
 
+def _bounded_index(haystack, needle):
+    """Index of `needle` in `haystack` on hyphen/string boundaries, else -1."""
+    start = 0
+    n = len(needle)
+    while True:
+        i = haystack.find(needle, start)
+        if i < 0:
+            return -1
+        before_ok = (i == 0) or haystack[i - 1] == "-"
+        end = i + n
+        after_ok = (end == len(haystack)) or haystack[end] == "-"
+        if before_ok and after_ok:
+            return i
+        start = i + 1
+
+
+def _match_area_slug(slug, slugs_sorted, slug_map):
+    """
+    Resolve an area from a Property Finder slug.
+
+    Property Finder slugs are usually `<area>-<building>-...`, but some put the
+    building name first (e.g. `torino-by-oro24-arjan-...`), which a prefix-only
+    match misses. We therefore:
+      1. Try a prefix match first (highest confidence: area normally leads).
+      2. Otherwise search for any known area slug anywhere in the slug, on
+         hyphen boundaries, preferring the longest match then the earliest.
+    """
+    if not slug:
+        return None
+    for prefix in slugs_sorted:
+        if slug == prefix or slug.startswith(prefix + "-"):
+            return slug_map[prefix]
+    best_key = None
+    best_area = None
+    for cand in slugs_sorted:
+        idx = _bounded_index(slug, cand)
+        if idx < 0:
+            continue
+        # Earliest position wins; longer slug breaks ties.
+        key = (idx, -len(cand))
+        if best_key is None or key < best_key:
+            best_key = key
+            best_area = slug_map[cand]
+    return best_area
+
+
 def extract_area(path):
     if not path:
         return None, None
@@ -144,18 +202,12 @@ def extract_area(path):
         m = re.search(r"-dubai-(.+?)(?:-\d{5,}\.html|\.html|-[A-Za-z0-9]{10,}\.html)", path)
         if not m:
             return city, None
-        slug = m.group(1)
-        for prefix in _DUBAI_SLUGS:
-            if slug.startswith(prefix + "-") or slug == prefix:
-                return city, DUBAI_SLUG_TO_AREA[prefix]
+        return city, _match_area_slug(m.group(1), _DUBAI_SLUGS, DUBAI_SLUG_TO_AREA)
     elif city == "Abu Dhabi":
         m = re.search(r"-abu-dhabi-(.+?)(?:-\d{5,}\.html|\.html|-[A-Za-z0-9]{10,}\.html)", path)
         if not m:
             return city, None
-        slug = m.group(1)
-        for prefix in _AD_SLUGS:
-            if slug.startswith(prefix + "-") or slug == prefix:
-                return city, AD_SLUG_TO_AREA[prefix]
+        return city, _match_area_slug(m.group(1), _AD_SLUGS, AD_SLUG_TO_AREA)
     return city, None
 
 
@@ -297,7 +349,7 @@ def norm_sqft(v):
         return None
     try:
         x = int(float(v))
-        return x if 100 <= x <= 2500 else None
+        return x if 300 <= x <= 2500 else None
     except (TypeError, ValueError):
         return None
 
@@ -321,11 +373,16 @@ def annual_rent(rent_val, period):
     except (TypeError, ValueError):
         return None
     p = (period or "").lower()
-    if "year" in p or "annual" in p:
-        return r
-    if "month" in p or "monthly" in p or not p:
+    if "month" in p or "monthly" in p:
         return r * 12
-    return r * 12
+    if "week" in p:
+        return r * 52
+    if "day" in p or "daily" in p or "night" in p:
+        return r * 365
+    # "year"/"annual", blank, or any unknown period: treat as yearly (PF's norm).
+    # Previously unknown/blank defaulted to x12, which 12x-inflated yearly figures
+    # that happened to omit the period.
+    return r
 
 
 def sale_psf(price, sqft):
@@ -360,6 +417,111 @@ def median(xs):
     s = sorted(xs)
     m = len(s) // 2
     return (s[m] + s[m - 1]) / 2 if len(s) % 2 == 0 else s[m]
+
+
+def furn_class(furnished_code):
+    """Collapse furnishing into a comp class: 'F' furnished, 'U' otherwise.
+
+    norm_furnished() returns 1 (furnished), 2 (partly), 0 (unfurnished/unknown).
+    Partly-furnished rents track closer to unfurnished, so they group as 'U'.
+    """
+    return "F" if furnished_code == 1 else "U"
+
+
+def build_rent_comps(rentals):
+    """
+    Build rent/sqft comp pools at four levels of specificity:
+      bf: (city, area, beds, furn_class, building)
+      b : (city, area, beds, building)
+      af: (city, area, beds, furn_class)
+      a : (city, area, beds)
+    Furnished and unfurnished rents differ materially, so furn-matched pools
+    are preferred by pick_rent_psf(); the mixed pools remain as fallbacks.
+    """
+    pools = {
+        "bf": defaultdict(list),
+        "b": defaultdict(list),
+        "af": defaultdict(list),
+        "a": defaultdict(list),
+    }
+    # Dedup re-listed units: the same physical unit listed by multiple agents has
+    # different IDs but identical building/sqft/beds/rent, which would otherwise
+    # double-count in comps. Collapse exact attribute matches.
+    seen_units = set()
+    for r in rentals:
+        sqft = norm_sqft(r.get("sqft"))
+        if sqft is None or sqft <= 0:
+            continue
+        beds = norm_beds(r.get("beds"))
+        if beds is None:
+            continue
+        ann = annual_rent(r.get("rent"), r.get("period"))
+        if ann is None or ann <= 0:
+            continue
+        rpsf = ann / sqft
+        if rpsf < MIN_RENT_PSF or rpsf > MAX_RENT_PSF:
+            continue
+        city, area = get_city_area(r)
+        area = area or "Other"
+        fclass = furn_class(norm_furnished(r.get("furnished")))
+        bld = (r.get("building") or "").strip().lower()
+        unit_key = (city, area, beds, bld, sqft, round(ann))
+        if unit_key in seen_units:
+            continue
+        seen_units.add(unit_key)
+        pools["a"][(city, area, beds)].append(rpsf)
+        pools["af"][(city, area, beds, fclass)].append(rpsf)
+        if bld:
+            pools["b"][(city, area, beds, bld)].append(rpsf)
+            pools["bf"][(city, area, beds, fclass, bld)].append(rpsf)
+    return pools
+
+
+def pick_rent_psf(city, area, beds, fclass, building, pools):
+    """
+    Resolve a representative rent/sqft for a sale listing.
+
+    Preference order (building first for specificity, furn-matched first):
+      1. same building + same furnishing  (needs >= MIN_BUILDING_COMPS)
+      2. same building, any furnishing     (needs >= MIN_BUILDING_COMPS)
+      3. same area + same furnishing        (needs >= 1)
+      4. same area, any furnishing          (needs >= 1)
+    A final pass accepts a thin building pool only when no area comps exist.
+
+    Returns (rpsf, conf, n): conf 'B' = building-level, 'A' = area-level,
+    n = number of rentals behind the chosen median.
+    """
+    bld = (building or "").lower()
+    candidates = [
+        (pools["bf"], (city, area, beds, fclass, bld), "B", True),
+        (pools["b"], (city, area, beds, bld), "B", True),
+        (pools["af"], (city, area, beds, fclass), "A", False),
+        (pools["a"], (city, area, beds), "A", False),
+    ]
+    for pool, key, conf, is_building in candidates:
+        vals = pool.get(key)
+        if not vals:
+            continue
+        if is_building and len(vals) < MIN_BUILDING_COMPS:
+            continue
+        return median(vals), conf, len(vals)
+    # Fallback: thin building pool (only reached if area pools are empty).
+    for pool, key, conf, is_building in candidates:
+        if not is_building:
+            continue
+        vals = pool.get(key)
+        if vals:
+            return median(vals), conf, len(vals)
+    return None, None, 0
+
+
+def compute_net_yield(rent_annual, sc_psf, sqft, price):
+    """Net yield % after service charge, vacancy and management assumptions."""
+    if not price or price <= 0:
+        return 0.0
+    effective_rent = rent_annual * (1 - VACANCY_RATE)
+    opex = sc_psf * sqft + rent_annual * MANAGEMENT_RATE
+    return ((effective_rent - opex) / price) * 100
 
 
 def build_url(listing):
@@ -607,26 +769,20 @@ def load_all_rental_drops(conn):
         FROM rental_drops WHERE total_drop > 0 ORDER BY total_drop_pct DESC""").fetchall()
 
 
-def _yields_for_prices(first_price, cur_price, sqft, city, area, beds, building, by_building, by_area, sc_psf):
+def _yields_for_prices(first_price, cur_price, sqft, city, area, beds, building, fclass, pools, sc_psf):
     """Return (old_gy, old_ny, new_gy, new_ny) or Nones if not computable."""
     if not sqft or not first_price or not cur_price:
         return None, None, None, None
     if not is_plausible_sale_psf(cur_price, sqft):
         return None, None, None, None
-    bkey = (city, area, beds, (building or "").lower())
-    akey = (city, area, beds)
-    rpsf = None
-    if bkey in by_building:
-        rpsf = median(by_building[bkey])
-    if rpsf is None and akey in by_area:
-        rpsf = median(by_area[akey])
+    rpsf, _conf, _n = pick_rent_psf(city, area, beds, fclass, building, pools)
     if not rpsf:
         return None, None, None, None
     rent_annual = rpsf * sqft
     new_gy = round((rent_annual / cur_price) * 100, 1)
-    new_ny = round(((rent_annual - sc_psf * sqft) / cur_price) * 100, 1)
+    new_ny = round(compute_net_yield(rent_annual, sc_psf, sqft, cur_price), 1)
     old_gy = round((rent_annual / first_price) * 100, 1) if first_price > 0 else 0
-    old_ny = round(((rent_annual - sc_psf * sqft) / first_price) * 100, 1) if first_price > 0 else 0
+    old_ny = round(compute_net_yield(rent_annual, sc_psf, sqft, first_price), 1) if first_price > 0 else 0
     if not is_plausible_yields(new_gy, new_ny):
         new_gy = new_ny = None
     if not is_plausible_yields(old_gy, old_ny):
@@ -634,7 +790,7 @@ def _yields_for_prices(first_price, cur_price, sqft, city, area, beds, building,
     return old_gy, old_ny, new_gy, new_ny
 
 
-def build_sales_price_changes(conn, areas, by_building, by_area, snapshot_date):
+def build_sales_price_changes(conn, areas, pools, snapshot_date):
     """
     All sale listings with at least one price change across snapshots (up or down).
     Row: lid, building, area_idx, sqft, beds, furn, first, prev, cur,
@@ -683,7 +839,8 @@ def build_sales_price_changes(conn, areas, by_building, by_area, snapshot_date):
         sc_psf = sc_for_area(area)
         furn_code = norm_furnished(furnished)
         old_gy, old_ny, new_gy, new_ny = _yields_for_prices(
-            first_price, cur_price, sqft, city, area, beds, building, by_building, by_area, sc_psf
+            first_price, cur_price, sqft, city, area, beds, building,
+            furn_class(furn_code), pools, sc_psf
         )
         pth = path or ""
         url = (PF_BASE + (pth if pth.startswith("/") else "/" + pth)) if pth else PF_BASE
@@ -1068,38 +1225,29 @@ def main():
         print(f"Failed to compute rental indices: {exc}")
         rental_city_idx, rental_area_idx = [], []
 
-    # --- Build rental indexes ---
-    by_building = defaultdict(list)
-    by_area = defaultdict(list)
-    for r in rentals_for_tracking:
-        sqft = norm_sqft(r.get("sqft"))
-        if sqft is None or sqft <= 0:
-            continue
-        beds = norm_beds(r.get("beds"))
-        if beds is None:
-            continue
-        ann = annual_rent(r.get("rent"), r.get("period"))
-        if ann is None or ann <= 0:
-            continue
-        rpsf = ann / sqft
-        if rpsf < 30 or rpsf > 300:
-            continue
-        b = (r.get("building") or "").strip()
-        city, area = get_city_area(r)
-        area = area or "Other"
-        if b:
-            by_building[(city, area, beds, b.lower())].append(rpsf)
-        by_area[(city, area, beds)].append(rpsf)
+    # --- Build rent comp pools (building/area x furnishing) ---
+    pools = build_rent_comps(rentals_for_tracking)
 
     # --- Areas list ---
     area_set = set()
+    unresolved_area = 0
     for s in sales:
         _, area = get_city_area(s)
+        if (area or "Other") == "Other":
+            unresolved_area += 1
         area_set.add(area or "Other")
     areas = ["Other"] + sorted(a for a in area_set if a != "Other")
+    if sales:
+        print(
+            f"Area resolution: {unresolved_area} of {len(sales)} sales unresolved "
+            f"to a known area ({unresolved_area / len(sales) * 100:.1f}% \"Other\")"
+        )
 
     # --- Listings output ---
-    # [building, area_idx, price, sqft, furnished, grossYield, netYield, tier, conf, scPsf, city, beds, url]
+    # base: [building, area_idx, price, sqft, furnished, grossYield, netYield,
+    #        tier, conf, scPsf, city, beds, url, id, rentCompCount]
+    # then extended to: ..., netChg, netChgPct, chgCount, rentCompCount
+    # final indices: 0..13 base, 14 netChg, 15 netChgPct, 16 chgCount, 17 rentCompCount
     listings_out = []
     skipped_bad_sale_psf = 0
     skipped_bad_yield = 0
@@ -1119,51 +1267,47 @@ def main():
         if beds is None:
             continue
 
-        rpsf = None
-        conf = "A"
-        bkey = (city, area, beds, building.lower())
-        akey = (city, area, beds)
-        if bkey in by_building:
-            rpsf = median(by_building[bkey])
-            conf = "B"
-        if rpsf is None and akey in by_area:
-            rpsf = median(by_area[akey])
+        furnished = norm_furnished(s.get("furnished"))
+        sc_psf = sc_for_area(area)
+        rpsf, conf, rn = pick_rent_psf(
+            city, area, beds, furn_class(furnished), building, pools
+        )
         if rpsf is None:
             continue
 
         rent_annual = rpsf * sqft
         gross_yield = (rent_annual / price) * 100
-        sc_psf = sc_for_area(area)
-        net_yield = ((rent_annual - sc_psf * sqft) / price) * 100 if price > 0 else 0
+        net_yield = compute_net_yield(rent_annual, sc_psf, sqft, price)
         if not is_plausible_yields(gross_yield, net_yield):
             skipped_bad_yield += 1
             continue
         tier = AREA_TIERS.get(area, DEFAULT_TIER)
         area_idx = areas.index(area) if area in areas else 0
-        furnished = norm_furnished(s.get("furnished"))
         url = build_url(s)
         lid = str(s.get("id", "") or "")
 
         listings_out.append([
             building, area_idx, round(price), sqft, furnished,
             round(gross_yield, 1), round(net_yield, 1), tier, conf, sc_psf,
-            city, beds, url, lid,
+            city, beds, url, lid, rn,
         ])
 
     # --- Sale / rental price change rows (any direction) + yields ---
     drops_out, d24 = build_sales_price_changes(
-        conn, areas, by_building, by_area, snapshot_date
+        conn, areas, pools, snapshot_date
     )
     rental_drops_out, rd24 = build_rental_changes(conn, areas, snapshot_date)
 
     sales_chg_by_id = {str(r[0]): (r[11], r[12], r[13]) for r in drops_out}
     for i, row in enumerate(listings_out):
         lid = row[13]
+        rn = row[14] if len(row) > 14 else 0
+        base = list(row[:14])
         chg = sales_chg_by_id.get(lid)
         if chg:
-            listings_out[i] = list(row) + [chg[0], chg[1], chg[2]]
+            listings_out[i] = base + [chg[0], chg[1], chg[2], rn]
         else:
-            listings_out[i] = list(row) + [None, None, 0]
+            listings_out[i] = base + [None, None, 0, rn]
 
     # First snapshot date (data start / "created") (must run before conn.close())
     first_snapshot_row = conn.execute(
@@ -1206,7 +1350,7 @@ def main():
         if row[8] == "B":
             area_stats[name]["bldg"] += 1
         area_stats[name]["rent_annuals"].append(row[2] * (row[5] / 100))
-    for (_, area_name, _), values in by_area.items():
+    for (_, area_name, _), values in pools["a"].items():
         area_stats[area_name]["rentals"] += len(values)
         area_stats[area_name]["rpsf"].extend(values)
 
