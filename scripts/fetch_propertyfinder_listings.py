@@ -38,15 +38,41 @@ HEADERS = {
 }
 
 # Property Finder sits behind AWS WAF. A plain HTTP client gets a challenge page (no __NEXT_DATA__).
-# Headless Chromium with light stealth passes the JS check; we then reuse cookies for pagination.
-STEALTH_INIT = """
-Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+# Headless Chromium with playwright-stealth passes the JS challenge; cookies are reused for pagination.
+
+# Fallback stealth init applied even when playwright-stealth is unavailable.
+_STEALTH_INIT = """
+(() => {
+  Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+  Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+  Object.defineProperty(navigator, 'languages', {get: () => ['en-US','en']});
+  Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
+  Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+  Object.defineProperty(screen, 'colorDepth', {get: () => 24});
+  window.chrome = {runtime: {}};
+  const origQuery = window.navigator.permissions.query;
+  window.navigator.permissions.query = (params) =>
+    params.name === 'notifications'
+      ? Promise.resolve({state: Notification.permission})
+      : origQuery(params);
+})();
 """
 
+_CHROMIUM_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-infobars",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-accelerated-2d-canvas",
+    "--no-first-run",
+    "--no-zygote",
+    "--disable-gpu",
+    "--window-size=1366,768",
+]
 
-def bootstrap_waf_session(page_url, attempts=3):
+
+def bootstrap_waf_session(page_url, attempts=5):
     """Run headless Chromium past AWS WAF; return (Cookie header string, HTML for first page)."""
     try:
         from playwright.sync_api import sync_playwright
@@ -56,28 +82,35 @@ def bootstrap_waf_session(page_url, attempts=3):
             "Install: pip install playwright && playwright install chromium"
         ) from exc
 
+    try:
+        from playwright_stealth import stealth_sync as _stealth_sync
+    except ImportError:
+        _stealth_sync = None
+
     last_exc = None
     with sync_playwright() as p:
         for attempt in range(1, attempts + 1):
-            browser = p.chromium.launch(
-                headless=True,
-                args=["--disable-blink-features=AutomationControlled"],
-            )
+            browser = p.chromium.launch(headless=True, args=_CHROMIUM_ARGS)
             try:
                 context = browser.new_context(
                     locale="en-US",
-                    viewport={"width": 1365, "height": 900},
+                    viewport={"width": 1366, "height": 768},
                     user_agent=PLAYWRIGHT_UA,
+                    java_script_enabled=True,
                 )
-                context.add_init_script(STEALTH_INIT)
+                context.add_init_script(_STEALTH_INIT)
                 page = context.new_page()
-                page.goto(page_url, wait_until="domcontentloaded", timeout=120000)
-                try:
-                    page.wait_for_selector("#__NEXT_DATA__", state="attached", timeout=120000)
-                except Exception:
-                    # Occasionally WAF challenge pages stick; one reload often clears it.
-                    page.reload(wait_until="domcontentloaded", timeout=120000)
-                    page.wait_for_selector("#__NEXT_DATA__", state="attached", timeout=120000)
+
+                if _stealth_sync is not None:
+                    _stealth_sync(page)
+
+                page.goto(page_url, wait_until="load", timeout=120000)
+
+                # If WAF challenge page, one reload usually clears it.
+                if page.query_selector("#__NEXT_DATA__") is None:
+                    page.reload(wait_until="load", timeout=120000)
+
+                page.wait_for_selector("#__NEXT_DATA__", state="attached", timeout=60000)
 
                 html = page.content()
                 cookies = context.cookies()
@@ -85,8 +118,10 @@ def bootstrap_waf_session(page_url, attempts=3):
                 return cookie_header, html
             except Exception as exc:
                 last_exc = exc
+                backoff = 5 * attempt  # 5s, 10s, 15s, 20s between retries
+                print(f"WAF session attempt {attempt}/{attempts} failed: {exc}. Retrying in {backoff}s...")
                 if attempt < attempts:
-                    time.sleep(3)
+                    time.sleep(backoff)
             finally:
                 browser.close()
     raise RuntimeError(f"Could not obtain WAF session for {page_url} after {attempts} attempts") from last_exc
