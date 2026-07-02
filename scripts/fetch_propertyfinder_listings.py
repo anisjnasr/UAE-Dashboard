@@ -14,7 +14,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 
 DEFAULT_SALES_URL = (
@@ -79,24 +79,45 @@ def _use_headed_browser():
     return os.environ.get("PF_USE_HEADED", "").lower() in ("1", "true", "yes")
 
 
+def _proxy_url():
+    return os.environ.get("PF_PROXY_URL", "").strip()
+
+
+def _playwright_proxy():
+    proxy = _proxy_url()
+    return {"server": proxy} if proxy else None
+
+
 def _page_debug_preview(page):
     preview = re.sub(r"\s+", " ", page.content()[:400]).strip()
     return f"title={page.title()!r}, url={page.url!r}, preview={preview!r}"
 
 
-def _wait_for_next_data(page, timeout_s=90):
-    """Poll until Next.js payload appears; reload once if WAF challenge sticks."""
+def _is_waf_challenge_page(page):
+    title = (page.title() or "").strip().lower()
+    if "human verification" in title:
+        return True
+    snippet = page.content()[:2500].lower()
+    return "awswaf" in snippet or "human verification" in snippet
+
+
+def _wait_for_waf_pass(page, timeout_s=180):
+    """Wait for AWS WAF JS challenge to finish and __NEXT_DATA__ to appear."""
     start = time.time()
-    reloaded = False
     while time.time() - start < timeout_s:
         if page.query_selector("#__NEXT_DATA__") is not None:
             return
-        elapsed = time.time() - start
-        if not reloaded and elapsed >= 30:
-            page.reload(wait_until="load", timeout=120000)
-            reloaded = True
+        # Never reload WAF challenge pages; reload resets the JS challenge.
+        if _is_waf_challenge_page(page):
+            time.sleep(3)
+            continue
         time.sleep(2)
-    raise TimeoutError(f"#__NEXT_DATA__ not found within {timeout_s}s ({_page_debug_preview(page)})")
+    raise TimeoutError(f"WAF challenge did not complete within {timeout_s}s ({_page_debug_preview(page)})")
+
+
+def _cookie_header_from_context(context):
+    cookies = context.cookies()
+    return "; ".join(f"{c['name']}={c['value']}" for c in cookies)
 
 
 def _playwright_context():
@@ -111,7 +132,7 @@ def _playwright_context():
     return Stealth().use_sync(sync_playwright()), True
 
 
-def bootstrap_waf_session(page_url, attempts=5):
+def bootstrap_waf_session(page_url, attempts=3):
     """Run Chromium past AWS WAF; return (Cookie header string, HTML for first page)."""
     try:
         from playwright.sync_api import sync_playwright  # noqa: F401
@@ -127,7 +148,11 @@ def bootstrap_waf_session(page_url, attempts=5):
 
     with playwright_ctx as p:
         for attempt in range(1, attempts + 1):
-            browser = p.chromium.launch(headless=headless, args=_CHROMIUM_ARGS)
+            browser = p.chromium.launch(
+                headless=headless,
+                args=_CHROMIUM_ARGS,
+                proxy=_playwright_proxy(),
+            )
             try:
                 context_kwargs = {
                     "locale": "en-US",
@@ -142,16 +167,31 @@ def bootstrap_waf_session(page_url, attempts=5):
 
                 page = context.new_page()
 
-                # Warm up on the homepage first so AWS WAF cookies are established.
+                # Establish WAF cookies on the homepage only.
                 page.goto(PF_HOME_URL, wait_until="load", timeout=120000)
-                _wait_for_next_data(page, timeout_s=90)
+                _wait_for_waf_pass(page, timeout_s=180)
+
+                cookie_header = _cookie_header_from_context(context)
+                user_agent = page.evaluate("navigator.userAgent")
+
+                # Reuse WAF cookies over HTTP — avoids a second in-browser challenge on search URLs.
+                try:
+                    html = fetch_html(
+                        page_url,
+                        cookie_header=cookie_header,
+                        user_agent=user_agent,
+                        referer=PF_HOME_URL,
+                    )
+                    extract_next_data(html)
+                    return cookie_header, html
+                except RuntimeError as http_exc:
+                    print(f"HTTP fetch with WAF cookies failed: {http_exc}. Trying browser navigation...")
 
                 page.goto(page_url, wait_until="load", timeout=120000)
-                _wait_for_next_data(page, timeout_s=90)
+                _wait_for_waf_pass(page, timeout_s=180)
 
                 html = page.content()
-                cookies = context.cookies()
-                cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+                cookie_header = _cookie_header_from_context(context)
                 return cookie_header, html
             except Exception as exc:
                 last_exc = exc
@@ -167,15 +207,26 @@ def bootstrap_waf_session(page_url, attempts=5):
     raise RuntimeError(f"Could not obtain WAF session for {page_url} after {attempts} attempts") from last_exc
 
 
-def fetch_html(url, retries=3, delay_s=2, cookie_header=None):
+def fetch_html(url, retries=3, delay_s=2, cookie_header=None, user_agent=None, referer=None):
     last_exc = None
     hdrs = dict(HEADERS)
+    if user_agent:
+        hdrs["User-Agent"] = user_agent
     if cookie_header:
         hdrs["Cookie"] = cookie_header
+    if referer:
+        hdrs["Referer"] = referer
+
+    proxy = _proxy_url()
+    if proxy:
+        open_fn = build_opener(ProxyHandler({"http": proxy, "https": proxy})).open
+    else:
+        open_fn = urlopen
+
     for attempt in range(1, retries + 1):
         try:
             req = Request(url, headers=hdrs)
-            with urlopen(req, timeout=45) as resp:
+            with open_fn(req, timeout=45) as resp:
                 return resp.read().decode("utf-8", errors="replace")
         except Exception as exc:
             last_exc = exc
