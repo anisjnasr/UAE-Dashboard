@@ -8,6 +8,7 @@ Outputs JSON files directly into data/ using:
 
 import argparse
 import json
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -24,6 +25,8 @@ DEFAULT_RENTAL_URL = (
     "https://www.propertyfinder.ae/en/search?l=6-1&c=2&t=1&bdr[]=0&bdr[]=1"
     "&bdr[]=2&fu=0&rp=y&ob=mr"
 )
+
+PF_HOME_URL = "https://www.propertyfinder.ae/en"
 
 # Match the Playwright context so cookie-backed urllib requests stay consistent.
 PLAYWRIGHT_UA = (
@@ -72,45 +75,79 @@ _CHROMIUM_ARGS = [
 ]
 
 
-def bootstrap_waf_session(page_url, attempts=5):
-    """Run headless Chromium past AWS WAF; return (Cookie header string, HTML for first page)."""
+def _use_headed_browser():
+    return os.environ.get("PF_USE_HEADED", "").lower() in ("1", "true", "yes")
+
+
+def _page_debug_preview(page):
+    preview = re.sub(r"\s+", " ", page.content()[:400]).strip()
+    return f"title={page.title()!r}, url={page.url!r}, preview={preview!r}"
+
+
+def _wait_for_next_data(page, timeout_s=90):
+    """Poll until Next.js payload appears; reload once if WAF challenge sticks."""
+    start = time.time()
+    reloaded = False
+    while time.time() - start < timeout_s:
+        if page.query_selector("#__NEXT_DATA__") is not None:
+            return
+        elapsed = time.time() - start
+        if not reloaded and elapsed >= 30:
+            page.reload(wait_until="load", timeout=120000)
+            reloaded = True
+        time.sleep(2)
+    raise TimeoutError(f"#__NEXT_DATA__ not found within {timeout_s}s ({_page_debug_preview(page)})")
+
+
+def _playwright_context():
+    from playwright.sync_api import sync_playwright
+
     try:
-        from playwright.sync_api import sync_playwright
+        from playwright_stealth import Stealth
+    except ImportError:
+        return sync_playwright(), False
+
+    # playwright-stealth 2.x removed stealth_sync; use the supported context wrapper.
+    return Stealth().use_sync(sync_playwright()), True
+
+
+def bootstrap_waf_session(page_url, attempts=5):
+    """Run Chromium past AWS WAF; return (Cookie header string, HTML for first page)."""
+    try:
+        from playwright.sync_api import sync_playwright  # noqa: F401
     except ImportError as exc:
         raise RuntimeError(
             "Playwright is required to pass Property Finder bot protection. "
             "Install: pip install playwright && playwright install chromium"
         ) from exc
 
-    try:
-        from playwright_stealth import stealth_sync as _stealth_sync
-    except ImportError:
-        _stealth_sync = None
-
+    headless = not _use_headed_browser()
     last_exc = None
-    with sync_playwright() as p:
+    playwright_ctx, stealth_enabled = _playwright_context()
+
+    with playwright_ctx as p:
         for attempt in range(1, attempts + 1):
-            browser = p.chromium.launch(headless=True, args=_CHROMIUM_ARGS)
+            browser = p.chromium.launch(headless=headless, args=_CHROMIUM_ARGS)
             try:
-                context = browser.new_context(
-                    locale="en-US",
-                    viewport={"width": 1366, "height": 768},
-                    user_agent=PLAYWRIGHT_UA,
-                    java_script_enabled=True,
-                )
-                context.add_init_script(_STEALTH_INIT)
+                context_kwargs = {
+                    "locale": "en-US",
+                    "viewport": {"width": 1366, "height": 768},
+                    "java_script_enabled": True,
+                }
+                if not stealth_enabled:
+                    context_kwargs["user_agent"] = PLAYWRIGHT_UA
+                context = browser.new_context(**context_kwargs)
+                if not stealth_enabled:
+                    context.add_init_script(_STEALTH_INIT)
+
                 page = context.new_page()
 
-                if _stealth_sync is not None:
-                    _stealth_sync(page)
+                # Warm up on the homepage first so AWS WAF cookies are established.
+                page.goto(PF_HOME_URL, wait_until="load", timeout=120000)
+                _wait_for_next_data(page, timeout_s=90)
 
                 page.goto(page_url, wait_until="load", timeout=120000)
-
-                # If WAF challenge page, one reload usually clears it.
-                if page.query_selector("#__NEXT_DATA__") is None:
-                    page.reload(wait_until="load", timeout=120000)
-
-                page.wait_for_selector("#__NEXT_DATA__", state="attached", timeout=60000)
+                _wait_for_next_data(page, timeout_s=90)
 
                 html = page.content()
                 cookies = context.cookies()
@@ -118,8 +155,11 @@ def bootstrap_waf_session(page_url, attempts=5):
                 return cookie_header, html
             except Exception as exc:
                 last_exc = exc
-                backoff = 5 * attempt  # 5s, 10s, 15s, 20s between retries
-                print(f"WAF session attempt {attempt}/{attempts} failed: {exc}. Retrying in {backoff}s...")
+                backoff = 10 * attempt
+                print(
+                    f"WAF session attempt {attempt}/{attempts} failed: {exc}. "
+                    f"Retrying in {backoff}s..."
+                )
                 if attempt < attempts:
                     time.sleep(backoff)
             finally:

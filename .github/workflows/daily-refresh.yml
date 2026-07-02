@@ -42,7 +42,7 @@ jobs:
 
       - name: Install Playwright (Property Finder bot check)
         run: |
-          pip install playwright playwright-stealth
+          pip install "playwright==1.61.0" "playwright-stealth==2.0.3"
           playwright install --with-deps chromium
 
       - name: Record start time
@@ -86,7 +86,21 @@ jobs:
           PY
 
       - name: Fetch listings
-        run: python scripts/fetch_propertyfinder_listings.py
+        env:
+          PF_USE_HEADED: "1"
+        run: |
+          for attempt in 1 2 3; do
+            echo "Fetch attempt ${attempt}/3..."
+            if xvfb-run --auto-servernum --server-args='-screen 0 1366x768x24' \
+              python scripts/fetch_propertyfinder_listings.py; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Fetch failed; waiting 90s before retry..."
+              sleep 90
+            fi
+          done
+          exit 1
 
       - name: Process data
         run: python process_data.py
