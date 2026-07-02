@@ -28,6 +28,15 @@ DEFAULT_RENTAL_URL = (
 
 PF_HOME_URL = "https://www.propertyfinder.ae/en"
 
+WAF_BLOCKED_HELP = (
+    "Property Finder blocked this request via AWS WAF (Human Verification). "
+    "GitHub Actions datacenter IPs are frequently blocked. "
+    "Fix options: (1) add repository secret PF_WAF_COOKIES — copy the Cookie header "
+    "from DevTools after opening propertyfinder.ae in your browser; "
+    "(2) add PF_PROXY_URL with a residential proxy (UAE preferred); "
+    "(3) run `python scripts/daily_update_runner.py --once --publish` locally instead."
+)
+
 # Match the Playwright context so cookie-backed urllib requests stay consistent.
 PLAYWRIGHT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -75,10 +84,6 @@ _CHROMIUM_ARGS = [
 ]
 
 
-def _use_headed_browser():
-    return os.environ.get("PF_USE_HEADED", "").lower() in ("1", "true", "yes")
-
-
 def _proxy_url():
     return os.environ.get("PF_PROXY_URL", "").strip()
 
@@ -101,7 +106,22 @@ def _is_waf_challenge_page(page):
     return "awswaf" in snippet or "human verification" in snippet
 
 
-def _wait_for_waf_pass(page, timeout_s=180):
+def _env_cookie_header():
+    return os.environ.get("PF_WAF_COOKIES", "").strip()
+
+
+def _try_cookie_bootstrap(page_url):
+    cookie_header = _env_cookie_header()
+    if not cookie_header:
+        return None
+    print("Trying pre-seeded WAF cookies (PF_WAF_COOKIES)...")
+    html = fetch_html(page_url, cookie_header=cookie_header, referer=PF_HOME_URL)
+    extract_next_data(html)
+    print("PF_WAF_COOKIES accepted.")
+    return cookie_header, html
+
+
+def _wait_for_waf_pass(page, timeout_s=120):
     """Wait for AWS WAF JS challenge to finish and __NEXT_DATA__ to appear."""
     start = time.time()
     while time.time() - start < timeout_s:
@@ -133,7 +153,7 @@ def _playwright_context():
 
 
 def bootstrap_waf_session(page_url, attempts=3):
-    """Run Chromium past AWS WAF; return (Cookie header string, HTML for first page)."""
+    """Obtain WAF session cookies and first-page HTML for a search URL."""
     try:
         from playwright.sync_api import sync_playwright  # noqa: F401
     except ImportError as exc:
@@ -142,14 +162,20 @@ def bootstrap_waf_session(page_url, attempts=3):
             "Install: pip install playwright && playwright install chromium"
         ) from exc
 
-    headless = not _use_headed_browser()
+    try:
+        seeded = _try_cookie_bootstrap(page_url)
+        if seeded:
+            return seeded
+    except RuntimeError as exc:
+        print(f"PF_WAF_COOKIES rejected: {exc}")
+
     last_exc = None
     playwright_ctx, stealth_enabled = _playwright_context()
 
     with playwright_ctx as p:
         for attempt in range(1, attempts + 1):
             browser = p.chromium.launch(
-                headless=headless,
+                headless=True,
                 args=_CHROMIUM_ARGS,
                 proxy=_playwright_proxy(),
             )
@@ -166,36 +192,16 @@ def bootstrap_waf_session(page_url, attempts=3):
                     context.add_init_script(_STEALTH_INIT)
 
                 page = context.new_page()
-
-                # Establish WAF cookies on the homepage only.
-                page.goto(PF_HOME_URL, wait_until="load", timeout=120000)
-                _wait_for_waf_pass(page, timeout_s=180)
-
-                cookie_header = _cookie_header_from_context(context)
-                user_agent = page.evaluate("navigator.userAgent")
-
-                # Reuse WAF cookies over HTTP — avoids a second in-browser challenge on search URLs.
-                try:
-                    html = fetch_html(
-                        page_url,
-                        cookie_header=cookie_header,
-                        user_agent=user_agent,
-                        referer=PF_HOME_URL,
-                    )
-                    extract_next_data(html)
-                    return cookie_header, html
-                except RuntimeError as http_exc:
-                    print(f"HTTP fetch with WAF cookies failed: {http_exc}. Trying browser navigation...")
-
+                # Navigate directly to the search URL (last known-good CI approach).
                 page.goto(page_url, wait_until="load", timeout=120000)
-                _wait_for_waf_pass(page, timeout_s=180)
+                _wait_for_waf_pass(page, timeout_s=120)
 
                 html = page.content()
                 cookie_header = _cookie_header_from_context(context)
                 return cookie_header, html
             except Exception as exc:
                 last_exc = exc
-                backoff = 10 * attempt
+                backoff = 5 * attempt
                 print(
                     f"WAF session attempt {attempt}/{attempts} failed: {exc}. "
                     f"Retrying in {backoff}s..."
@@ -204,7 +210,9 @@ def bootstrap_waf_session(page_url, attempts=3):
                     time.sleep(backoff)
             finally:
                 browser.close()
-    raise RuntimeError(f"Could not obtain WAF session for {page_url} after {attempts} attempts") from last_exc
+    raise RuntimeError(
+        f"Could not obtain WAF session for {page_url} after {attempts} attempts. {WAF_BLOCKED_HELP}"
+    ) from last_exc
 
 
 def fetch_html(url, retries=3, delay_s=2, cookie_header=None, user_agent=None, referer=None):
@@ -230,6 +238,10 @@ def fetch_html(url, retries=3, delay_s=2, cookie_header=None, user_agent=None, r
                 return resp.read().decode("utf-8", errors="replace")
         except Exception as exc:
             last_exc = exc
+            detail = str(exc)
+            if hasattr(exc, "code"):
+                detail = f"HTTP {exc.code}: {detail}"
+            print(f"fetch_html attempt {attempt}/{retries} failed for {url}: {detail}")
             if attempt < retries:
                 time.sleep(delay_s)
     raise RuntimeError(f"Failed to fetch URL after {retries} attempts: {url}") from last_exc

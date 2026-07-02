@@ -87,21 +87,13 @@ jobs:
 
       - name: Fetch listings
         env:
-          PF_USE_HEADED: "1"
+          PF_WAF_COOKIES: ${{ secrets.PF_WAF_COOKIES }}
           PF_PROXY_URL: ${{ secrets.PF_PROXY_URL }}
         run: |
-          for attempt in 1 2; do
-            echo "Fetch attempt ${attempt}/2..."
-            if xvfb-run --auto-servernum --server-args='-screen 0 1366x768x24' \
-              python scripts/fetch_propertyfinder_listings.py; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 2 ]; then
-              echo "Fetch failed; waiting 120s before retry..."
-              sleep 120
-            fi
-          done
-          exit 1
+          if [ -z "${PF_WAF_COOKIES:-}" ] && [ -z "${PF_PROXY_URL:-}" ]; then
+            echo "::warning::Neither PF_WAF_COOKIES nor PF_PROXY_URL is set. GitHub-hosted runners are often blocked by Property Finder AWS WAF."
+          fi
+          python scripts/fetch_propertyfinder_listings.py
 
       - name: Process data
         run: python process_data.py
